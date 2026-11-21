@@ -1,0 +1,63 @@
+# Task 05: exchange-runtime (Wave 2, money path)
+
+- Worktree: `C:/DeepSpace-project-exchange-runtime`, branch `agent/exchange-runtime` (from `agent/exchange` after wave 1 merged), port **5186**.
+- Read first: `BRIEF.md`, `PLAN.md` §3–§7, §10. `orchestrations/files/SPIKE.md` (especially the S3 mirror recommendation) and `LESSONS.md`. The APIs of `src/engine/core` and `src/engine/market`.
+
+## Owns
+
+`src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `tests/api.spec.ts`.
+
+## Out of scope
+
+Changing `src/engine/**`: report bugs to the director, who routes them. Also out of scope: UI, news generation, and schemas (request schema changes from the director).
+
+## Steps
+
+1. **SQLite tables** in ExchangeRoom: `meta`, `accounts`, `holdings`, `book`, `batches`, `fundamentals`, `bots` (PLAN §4). Create them on first construct.
+2. **Intake** (`POST /exchange/order|cancel`):
+   - enroll the trader on first action in a round with `START_CASH_CENTS`;
+   - enforce `MAX_ORDERS_PER_BATCH`;
+   - call `checkAndReserve`;
+   - persist with the server `orderId` and the current `batchId`;
+   - return `PlaceOrderData`.
+   Cancel releases the reservation for any unfilled quantity. Non-owners get `not_owner`, and already filled or cancelled orders get `already_final`.
+3. **Batch loop** (`onAlarm`, every `BATCH_MS` while `phase === 'live'`):
+   1. compute seeds;
+   2. in **one `transactionSync`**: `clearBatch` per ticker, then `settleFill`, then update the book, last price, and fundamentals (`stepFundamental`), then run bots (cancel old quotes, add new intents through the **same** reserve path, with bot ids `bot:mm` and `bot:noise`), then increment `batchId`;
+   3. after commit: broadcast `ex.batch`, then mirror.
+   - The alarm only re-arms while there's a live round. It pauses when the room has had no sockets and no orders for 5 min, and resumes on the next request or connection.
+4. **Mirror to RecordRoom**, using the S3 mechanism with deterministic recordIds from the BRIEF table:
+   - changed `orders`, new `fills`, the `tape` (one record per ticker with volume > 0), changed `portfolios`, and `tickers.lastCents`;
+   - bots get no `orders` or `fills` mirrors;
+   - writes are idempotent, so a retried alarm can't duplicate anything;
+   - if S3 says to throttle, mirror per-user records every batch and `tickers` every N batches, and document the choice.
+5. **Shock** (`POST /exchange/shock`): `applyShock`, starting from the next batch. Returns `round_closed` during the break.
+6. **Rounds.** Lifecycle `live` (15 min) then `break` (2 min):
+   - at the end of a round: cancel all orders, release reservations, mark to market, write the `rounds` record with standings and the winner (bots excluded), broadcast `ex.phase`;
+   - at the start of a round: new `roundId`, reset fundamentals and bots, accounts enroll lazily.
+7. **WS.** Send `ex.snapshot` on connect, `ex.batch` per batch, and `ex.phase` on transitions. Depth shows the top 10 levels aggregated, with no trader ids.
+8. **Self-check.** After every batch, assert the PLAN §4 invariants on touched accounts. On a violation, log `[exchange] INVARIANT <detail>` at error level and halt the round. Failing loud beats corrupting balances.
+9. **`src/actions/orders.ts`.** Finalize param validation (types and ranges) before the DO call. The DO stays the authority.
+
+## Tests
+
+- **`tests/api.spec.ts`** (extend; keep news's tests):
+  - unauthenticated `placeOrder` → 401;
+  - bad qty, price, or ticker → typed errors;
+  - insufficient cash;
+  - cancel another user's order → `not_owner`;
+  - a valid order returns `orderId` and `batchId`.
+- **Two-user API test:** A buys and B sells at a crossing price within the same batch. After one batch, both have `fills` at the same price, both `portfolios` have changed, and a `tape` record exists.
+- **Simultaneous fairness (end-to-end):** A and B send identical marketable buys in the same batch. Assert that both acks have the same `batchId` and that every fill in that batch has one price. The exact pro-rata split is proven in engine-core's unit tests. Bots also trade, so e2e can't pin exact quantities; don't add a bot kill switch to force it.
+
+## Acceptance
+
+- [ ] `test run unit` + `test run --port 5186` pass.
+- [ ] Manual local run, `dev start --port 5186`, signed in as one user for 2 minutes:
+  - bots keep the tape moving;
+  - a buy fills;
+  - the portfolio record updates;
+  - a POST to `/exchange/shock` via `breakingNews` (the owner account) moves the price over ~15 batches.
+  Report the observed numbers.
+- [ ] No `INVARIANT` lines in logs during the run.
+- [ ] Final report per `BRIEF.md`.
