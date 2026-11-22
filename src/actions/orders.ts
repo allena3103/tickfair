@@ -1,15 +1,16 @@
 /**
  * Order entry actions (PLAN §3 "Order intake path").
  *
- * The trader is always `ctx.userId` from the verified JWT. Params are shape-
- * checked here; money rules (cash, band, caps, self-cross) are enforced by
- * ExchangeRoom, which is the only place that knows balances.
- *
- * Ownership moves to exchange-runtime in wave 2.
+ * The trader is always `ctx.userId` from the verified JWT; any userId in the
+ * params is dropped. Params are type- and range-checked here so junk never
+ * reaches the room; money rules (cash, band, caps, self-cross, rate limit) are
+ * enforced by ExchangeRoom, which is the only place that knows balances and
+ * re-checks everything.
  */
 
 import type { ActionHandler, ActionResult } from 'deepspace/worker'
 import { TICKERS } from '../shared/contracts.js'
+import { MAX_ORDER_QTY } from '../engine/core/index.js'
 import type {
   ExchangeCancelRequest,
   ExchangeCancelResponse,
@@ -44,15 +45,21 @@ function reject(code: RejectCode): ActionResult {
 
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
 
-/** Shape check only. Returns the clean params or the reject code. */
-export function parsePlaceOrder(raw: Record<string, unknown>): PlaceOrderParams | RejectCode {
-  const { ticker, side, type, qty, limitCents } = raw
+/** No fictional stock is anywhere near $1M a share; anything above is a typo or an attack. */
+export const MAX_LIMIT_CENTS = 100_000_000
+/** Server-generated order ids are `o-<uuid>`. */
+const ORDER_ID = /^o-[0-9a-f-]{36}$/
+
+/** Shape and range check. Returns the clean params or the reject code. */
+export function parsePlaceOrder(raw: unknown): PlaceOrderParams | RejectCode {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'invalid_ticker'
+  const { ticker, side, type, qty, limitCents } = raw as Record<string, unknown>
   if (typeof ticker !== 'string' || !(TICKERS as readonly string[]).includes(ticker)) return 'invalid_ticker'
   if (side !== 'buy' && side !== 'sell') return 'invalid_side'
   if (type !== 'limit' && type !== 'market') return 'invalid_type'
-  if (!isPositiveInt(qty)) return 'invalid_qty'
+  if (!isPositiveInt(qty) || qty > MAX_ORDER_QTY) return 'invalid_qty'
   if (type === 'limit') {
-    if (!isPositiveInt(limitCents)) return 'invalid_price'
+    if (!isPositiveInt(limitCents) || limitCents > MAX_LIMIT_CENTS) return 'invalid_price'
     return { ticker: ticker as Ticker, side, type, qty, limitCents }
   }
   // Market orders carry no limit; the engine prices them at the band edge.
@@ -60,10 +67,23 @@ export function parsePlaceOrder(raw: Record<string, unknown>): PlaceOrderParams 
   return { ticker: ticker as Ticker, side, type, qty }
 }
 
+/** Shown on the public leaderboard. A lookup failure must not block trading. */
 async function displayNameFor(tools: Parameters<ActionHandler<Env>>[0]['tools'], userId: string): Promise<string> {
-  const res = await tools.get<{ displayName?: string; name?: string }>('users', userId)
-  const data = res.success ? res.data.record.data : undefined
-  return (data?.displayName || data?.name || 'Trader').slice(0, 40)
+  try {
+    const res = await tools.get<{ displayName?: string; name?: string }>('users', userId)
+    const data = res.success ? res.data.record?.data : undefined
+    const name = typeof data?.displayName === 'string' && data.displayName ? data.displayName : data?.name
+    return (typeof name === 'string' && name.trim() ? name.trim() : 'Trader').slice(0, 40)
+  } catch {
+    return 'Trader'
+  }
+}
+
+/** Order ids from the client are checked for shape before the room sees them. */
+export function parseCancel(raw: unknown): string | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const { orderId } = raw as Record<string, unknown>
+  return typeof orderId === 'string' && ORDER_ID.test(orderId) ? orderId : null
 }
 
 export const placeOrder: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
@@ -81,8 +101,8 @@ export const placeOrder: ActionHandler<Env> = async ({ userId, params, tools, en
 }
 
 export const cancelOrder: ActionHandler<Env> = async ({ userId, params, env }) => {
-  const { orderId } = params
-  if (typeof orderId !== 'string' || orderId.length === 0 || orderId.length > 64) return reject('not_found')
+  const orderId = parseCancel(params)
+  if (!orderId) return reject('not_found')
 
   const body: ExchangeCancelRequest = { userId, orderId }
   const res = await callExchange<ExchangeCancelResponse>(env, '/exchange/cancel', body)
