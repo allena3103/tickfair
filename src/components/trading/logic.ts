@@ -281,3 +281,17 @@ export function finishedRound<T extends { status: string }>(
 export function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
 }
+
+export interface CancelFailure {
+  orderId: string
+  message: string
+}
+
+/**
+ * A failed cancel is about one order. Show it only while that order is still
+ * listed: a cancel that loses the race to a fill ("already filled") stops
+ * mattering once the fill lands and the order leaves the list.
+ */
+export function cancelFailureToShow(failure: CancelFailure | null, orders: { id: string }[]): string | null {
+  return failure && orders.some((o) => o.id === failure.orderId) ? failure.message : null
+}

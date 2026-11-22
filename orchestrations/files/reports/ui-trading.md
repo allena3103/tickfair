@@ -1,4 +1,25 @@
-# Report: ui-trading (wave 2), evaluator fixes
+# Report: ui-trading (wave 2), evaluator run 2 fix
+
+**E2-1, on code commit `5b5503a`,** rebased onto `agent/exchange` at `634b864` (clean). Every check was rerun by me on that commit.
+
+| Bug | Fix | Test |
+|-----|-----|------|
+| **E2-1** A cancel that lost the race to a fill showed "That order already filled or was cancelled." and kept showing it long after the order left the list. | `MyOrders.tsx`: a cancel failure is now stored with its order id (`{ orderId, message }`). The panel shows it only while that order is still in Open orders (`cancelFailureToShow` in `logic.ts`). This is derived on each render, so it needs no timer or effect: the message disappears in the same render that drops the filled order. A failure on an order that is still listed (for example a network error) stays visible until that order leaves or the next cancel attempt. | Unit: `cancelFailureToShow (E2-1)`: shown while the order is listed, null once it leaves (including an empty list), and null without a failure. |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 271 passed (271)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `31 passed`, `1 skipped` (opt-in screenshots), 54.3 s |
+
+I didn't add an e2e test for the race itself: making a fill and a cancel land in the same batch on purpose would depend on bot timing. The unit test covers the rule that clears the message.
+
+Files changed: `src/components/trading/MyOrders.tsx`, `src/components/trading/logic.ts`, `src/components/trading/logic.test.ts`. All are in my ownership list. No open requests for the director.
+
+---
+
+## Evaluator fixes (run 1)
 
 **Evaluator fixes, on code commit `123426e`,** rebased onto `agent/exchange` at `5d96efe`. The rebase was clean; my earlier commits were already merged there. Every check was rerun by me on that commit.
 
@@ -162,7 +183,8 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`. This report is committed on top of it.
+- E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`. This report is committed on top of it.
+- Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`.
 - Review round 2 code commit: `1206662`.
 - Review round 1 code commit: `e48f195`.
 - Round 2 code commit: `c792ecb`, rebased on `agent/exchange` at `cfc6d6d`. (Round 1 code commit was `462f1a4`, before the rebase.)

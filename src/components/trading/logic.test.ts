@@ -9,6 +9,7 @@ import {
 } from '@/hooks/useExchangeStream'
 import {
   REJECT_MESSAGES,
+  cancelFailureToShow,
   chartPoints,
   finishedRound,
   liveOrderRows,
@@ -279,5 +280,19 @@ describe('plural (BUG-5a)', () => {
     expect(plural(1, 'batch', 'batches')).toBe('1 batch')
     expect(plural(0, 'batch', 'batches')).toBe('0 batches')
     expect(plural(1200, 'batch', 'batches')).toBe('1,200 batches')
+  })
+})
+
+describe('cancelFailureToShow (E2-1)', () => {
+  const failure = { orderId: 'o-1', message: REJECT_MESSAGES.already_final }
+  it('shows the error while the order is still listed', () => {
+    expect(cancelFailureToShow(failure, [{ id: 'o-2' }, { id: 'o-1' }])).toBe(REJECT_MESSAGES.already_final)
+  })
+  it('clears once the order leaves the list (filled in the same batch as the cancel)', () => {
+    expect(cancelFailureToShow(failure, [{ id: 'o-2' }])).toBeNull()
+    expect(cancelFailureToShow(failure, [])).toBeNull()
+  })
+  it('shows nothing without a failure', () => {
+    expect(cancelFailureToShow(null, [{ id: 'o-1' }])).toBeNull()
   })
 })
