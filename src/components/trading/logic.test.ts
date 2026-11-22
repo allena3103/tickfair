@@ -10,6 +10,8 @@ import {
 import {
   REJECT_MESSAGES,
   chartPoints,
+  finishedRound,
+  liveOrderRows,
   ladderRows,
   linePath,
   parsePriceInput,
@@ -232,5 +234,41 @@ describe('streamReducer', () => {
     expect(backoffMs(1, 0.5)).toBe(1_000)
     expect(backoffMs(20, 0.5)).toBe(10_000)
     expect(backoffMs(20, 1)).toBeLessThanOrEqual(12_500)
+  })
+})
+
+describe('liveOrderRows (F1)', () => {
+  const rec = (id: string, o: Partial<OrderRecord>) => ({ recordId: id, data: order(o) })
+  it('keeps every live order however many finished ones the round has', () => {
+    // The page only queries status open and partial, so 300 filled orders never enter these sets.
+    const open = Array.from({ length: 20 }, (_, i) => rec(`o-${i}`, { batchId: i, status: 'open' }))
+    const partial = [rec('p-1', { batchId: 99, status: 'partial', filledQty: 3 })]
+    const rows = liveOrderRows([open, partial], 'u')
+    expect(rows).toHaveLength(21)
+    expect(rows[0].id).toBe('p-1')
+    expect(reservedBy(rows).cashCents).toBe(20 * 10 * 1_000 + 7 * 1_000)
+  })
+  it('dedupes an order caught in both sets (partial wins), drops others and finished rows', () => {
+    const rows = liveOrderRows(
+      [
+        [rec('x', { status: 'open' }), rec('y', { userId: 'someone-else' }), rec('z', { status: 'filled' })],
+        [rec('x', { status: 'partial', filledQty: 4 })],
+      ],
+      'u',
+    )
+    expect(rows.map((r) => [r.id, r.status])).toEqual([['x', 'partial']])
+  })
+})
+
+describe('finishedRound (Q1)', () => {
+  const done = { startsAt: 0, endsAt: 1, status: 'done', standings: [{ userId: 'u', displayName: 'A', equityCents: 1 }], winnerId: 'u' }
+  it('returns the closed round by id once it is done', () => {
+    const records = [{ recordId: 'r-2', data: done }, { recordId: 'r-1', data: { ...done, winnerId: 'old' } }]
+    expect(finishedRound(records, 'r-2')).toBe(done)
+  })
+  it('is null (tallying) while the record is still live, missing, or another round', () => {
+    expect(finishedRound([{ recordId: 'r-2', data: { ...done, status: 'live' } }], 'r-2')).toBeNull()
+    expect(finishedRound([], 'r-2')).toBeNull()
+    expect(finishedRound([{ recordId: 'r-1', data: done }], 'r-2')).toBeNull()
   })
 })

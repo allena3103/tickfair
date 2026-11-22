@@ -139,6 +139,14 @@ test('A buys, B sells into it: both see the print, the board, and only their own
     expect(onA).toMatch(/^\$[\d,]+$/)
     expect(onA).toBe(onB)
   }).toPass({ timeout: 20_000 })
+  // And that equity is A's portfolio marked to live prices: the leaderboard
+  // (whole dollars) matches A's own positions panel (cents) within rounding.
+  const money = (s: string | null) => Number((s ?? '').replace(/[^\d.]/g, ''))
+  await expect(async () => {
+    const [board, own] = await Promise.all([equityOf(a.page), a.page.getByTestId('my-equity').textContent()])
+    expect(own).toMatch(/^\$[\d,]+\.\d{2}$/)
+    expect(Math.abs(money(board) - money(own))).toBeLessThanOrEqual(0.5)
+  }).toPass({ timeout: 20_000 })
   await expect(a.page.getByTestId('positions').locator('[data-testid="position-row"][data-ticker="ORBT"]')).toBeVisible()
 
   // Privacy: A's resting order shows for A, and nowhere in B's DOM.

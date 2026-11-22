@@ -240,3 +240,39 @@ export function ladderRows(depth: { bids: [number, number][]; asks: [number, num
   const bestBid = bids.length ? bids[0][0] : null
   return { asks, bids, maxQty, spreadCents: bestAsk !== null && bestBid !== null ? bestAsk - bestBid : null }
 }
+
+/**
+ * My live orders from separate `status: open` and `status: partial` queries,
+ * so a round with many finished orders never pushes live ones out of a
+ * query limit. An order moving open → partial can show in both sets for a
+ * moment; partial (the later state) wins. Newest batch first.
+ */
+export function liveOrderRows(
+  sets: { recordId: string; data: OrderRecord }[][],
+  userId: string | null | undefined,
+): (OrderRecord & { id: string })[] {
+  const byId = new Map<string, OrderRecord>()
+  for (const set of sets) {
+    for (const r of set) {
+      if (r.data.userId !== userId || !isLiveOrder(r.data)) continue
+      const prev = byId.get(r.recordId)
+      if (!prev || (prev.status === 'open' && r.data.status === 'partial')) byId.set(r.recordId, r.data)
+    }
+  }
+  return [...byId.entries()]
+    .map(([id, data]) => ({ ...data, id }))
+    .sort((a, b) => b.batchId - a.batchId || a.id.localeCompare(b.id))
+}
+
+/**
+ * The round record the break overlay shows: the one whose id is the round
+ * the exchange just closed, and only once it is marked done (its standings
+ * are written in the same mirror row). Null means "still tallying".
+ */
+export function finishedRound<T extends { status: string }>(
+  records: { recordId: string; data: T }[],
+  roundId: string,
+): T | null {
+  const r = records.find((x) => x.recordId === roundId)
+  return r && r.data.status === 'done' ? r.data : null
+}

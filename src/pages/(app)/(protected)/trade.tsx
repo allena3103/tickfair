@@ -13,12 +13,13 @@ import {
   type FillRecord,
   type OrderRecord,
   type PortfolioRecord,
+  type RoundRecord,
   type Ticker,
   type TickerRecord,
 } from '@/shared/contracts'
 import { useExchangeStream } from '@/hooks/useExchangeStream'
 import { useFloorPresence } from '@/components/shell/FloorPresence'
-import { NO_ROUND, useCurrentRound } from '@/components/shell/useCurrentRound'
+import { NO_ROUND } from '@/components/shell/useCurrentRound'
 import { Leaderboard } from '@/components/feed/Leaderboard'
 import { NewsFeed } from '@/components/feed/NewsFeed'
 import { OnlineTraders } from '@/components/feed/OnlineTraders'
@@ -30,7 +31,7 @@ import { OrderTicket } from '@/components/trading/OrderTicket'
 import { PriceChart } from '@/components/trading/PriceChart'
 import { RoundBreakOverlay } from '@/components/trading/RoundBreak'
 import { TickerTabs } from '@/components/trading/TickerTabs'
-import { isLiveOrder, portfolioView, readHoldings, reservedBy } from '@/components/trading/logic'
+import { finishedRound, liveOrderRows, portfolioView, readHoldings, reservedBy } from '@/components/trading/logic'
 
 export default function TradePage() {
   const { userId } = useAuthStatus()
@@ -60,15 +61,16 @@ export default function TradePage() {
     return { ...out, ...stream.last }
   }, [tickers.records, stream.last])
 
-  const orders = useQuery<OrderRecord>('orders', { where: { roundId }, limit: 200 })
+  // Live orders only (at most MAX_OPEN_ORDERS per trader), so finished
+  // orders can never crowd them out of the query limit.
+  const openQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'open' }, limit: 100 })
+  const partialQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'partial' }, limit: 100 })
   const openOrders = useMemo(
-    () =>
-      orders.records
-        .filter((r) => r.data.userId === userId && isLiveOrder(r.data))
-        .map((r) => ({ ...r.data, id: r.recordId }))
-        .sort((a, b) => b.batchId - a.batchId || a.id.localeCompare(b.id)),
-    [orders.records, userId],
+    () => liveOrderRows([openQ.records, partialQ.records], userId),
+    [openQ.records, partialQ.records, userId],
   )
+  const orders =
+    openQ.status === 'error' ? openQ : partialQ.status === 'error' ? partialQ : openQ.status === 'loading' ? openQ : partialQ
 
   const fills = useQuery<FillRecord>('fills', { where: { roundId }, orderBy: 'batchId', orderDir: 'desc', limit: 100 })
   const myFills = useMemo(
@@ -100,8 +102,9 @@ export default function TradePage() {
           ? 'Connecting to your account.'
           : null
 
-  const current = useCurrentRound()
-  const finished = current.round && current.round.recordId === stream.roundId ? current.round.data : null
+  // Looked up by the id the exchange just closed, not "the newest round".
+  const recentRounds = useQuery<RoundRecord>('rounds', { orderBy: 'startsAt', orderDir: 'desc', limit: 5 })
+  const finished = useMemo(() => finishedRound(recentRounds.records, stream.roundId), [recentRounds.records, stream.roundId])
   const [hiddenFor, setHiddenFor] = useState<string | null>(null)
   const showBreak = stream.synced && stream.phase === 'break' && hiddenFor !== stream.roundId
   const hideBreak = useCallback(() => setHiddenFor(stream.roundId), [stream.roundId])
