@@ -2,6 +2,18 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: review round 2 (PASS with 2 minor findings, both fixed)
+
+| # | Finding | Fix | Proof |
+|---|---------|-----|-------|
+| F1 | `NewsFeed` called `new Date(publishedAt).toISOString()`, which throws RangeError on a missing or non-numeric value and blanks the page. | `<time>` is rendered only when `publishedAt` is a finite number inside the valid Date range (±8.64e15 ms). The headline still shows, but without the time or the "new" flag. Bad values sort last. | `views.test.tsx` › "survives a missing or malformed publishedAt": `undefined`, `'soon'`, `NaN`, and `1e20` all render with no throw and no `<time>` element. |
+| F2 | `mergeOnline` always marked the viewer `onFloor: true`, so while reconnecting the self row said "on floor" under the "Lost the floor connection" alert. | `mergeOnline` takes `selfOnFloor`, and `useOnlineTraders` passes `status === 'connected'`. While the socket is down, the self row shows as off the floor with no ticker. | `logic.test.ts` › "does not mark yourself on the floor while your socket is down". |
+
+Checks on `fdc8e1f`:
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- `npx deepspace test run unit --port 5185`: 11 files, 119 tests passed.
+- `npx deepspace test run e2e --port 5185`: exit 0, with 12 passed and 1 skipped (`/trade`, which ui-trading hasn't built yet).
+
 ## Update: review round 1 (PASS with 4 minor findings, all fixed)
 
 | # | Finding | Fix | Proof |
@@ -134,4 +146,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `99497b3`. The final code commit is `15ca254` (the review fixes), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `99497b3`. The final code commit is `fdc8e1f` (the review round 2 fixes), and the report commit is the next one, on top of it.
