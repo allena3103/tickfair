@@ -5,7 +5,9 @@
 
 ## Owns
 
-`src/pages/index.tsx`, `src/pages/(app)/_layout.tsx`, `src/pages/(app)/rounds.tsx`, `src/components/shell/**`, `src/components/feed/**`, `src/theme/**`, `docs/design/**`, `tests/smoke.spec.ts`.
+`src/pages/index.tsx`, `src/pages/_app.tsx`, `src/pages/(app)/_layout.tsx`, `src/pages/(app)/home.tsx`, `src/pages/(app)/rounds.tsx`, `src/pages/(app)/(protected)/api-status.tsx`, `src/pages/(app)/(protected)/settings.tsx`, `src/components/Navigation.tsx`, `src/nav.ts`, `src/styles.css`, `src/themes.ts`, `src/themes.css`, `src/components/shell/**`, `src/components/feed/**`, `src/theme/**`, `docs/design/**`, `tests/smoke.spec.ts`. (Expanded by the director after foundation to match the README ownership table.)
+
+**Director addition during the build:** delete the scaffold placeholder pages `api-status.tsx` and `settings.tsx`, along with their nav entries and the scaffold test cases that exercise them. For this cleanup only, the builder may delete those cases from `tests/collab.spec.ts`. The `index.html` theme attribute and `src/seo.ts` copy are applied by the director at merge.
 
 ## Out of scope
 
