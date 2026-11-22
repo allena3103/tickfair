@@ -61,10 +61,11 @@ export default function TradePage() {
     return { ...out, ...stream.last }
   }, [tickers.records, stream.last])
 
-  // Live orders only (at most MAX_OPEN_ORDERS per trader), so finished
-  // orders can never crowd them out of the query limit.
-  const openQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'open' }, limit: 100 })
-  const partialQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'partial' }, limit: 100 })
+  // My live orders only (at most MAX_OPEN_ORDERS per trader). Filtering on
+  // status and userId server-side means neither finished orders nor anyone
+  // else's rows can use up the limit.
+  const openQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'open', userId: userId ?? NO_ROUND }, limit: 100 })
+  const partialQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'partial', userId: userId ?? NO_ROUND }, limit: 100 })
   const openOrders = useMemo(
     () => liveOrderRows([openQ.records, partialQ.records], userId),
     [openQ.records, partialQ.records, userId],

@@ -12,7 +12,7 @@ import { MyFills, OpenOrders, Positions } from './MyOrders'
 import { PriceChartView } from './PriceChart'
 import { RoundBreakOverlay } from './RoundBreak'
 import { BatchClock } from './BatchClock'
-import { portfolioView } from './logic'
+import { finishedRound, portfolioView } from './logic'
 
 const html = (el: ReactElement) => renderToStaticMarkup(el)
 const noop = () => {}
@@ -103,5 +103,31 @@ describe('BatchClock and round break', () => {
     expect(out).toContain('Ana')
     expect(out).toContain('(you)')
     expect(out).not.toContain('MM')
+  })
+
+  it('page path: the done record for the closed round id renders one standing row per human', () => {
+    // During the break, ex.phase and ex.snapshot carry the round that just closed (core.ts closeRound).
+    const round = { startsAt: 0, endsAt: 1, status: 'done' as const, winnerId: 'u1' }
+    const records = [
+      {
+        recordId: 'r-closed',
+        data: {
+          ...round,
+          standings: [
+            { userId: 'u2', displayName: 'Bo', equityCents: 9_900_000 },
+            { userId: 'bot:noise', displayName: 'Noise', equityCents: 5 },
+            { userId: 'u1', displayName: 'Ana', equityCents: 10_250_000 },
+          ],
+        },
+      },
+      { recordId: 'r-older', data: { ...round, standings: [{ userId: 'u9', displayName: 'Old', equityCents: 1 }] } },
+    ]
+    const out = html(<RoundBreakOverlay round={finishedRound(records, 'r-closed')} phaseEndsAt={0} currentUserId="u2" onHide={noop} />)
+    expect(out.match(/data-testid="final-standing"/g)).toHaveLength(2)
+    const names = [...out.matchAll(/data-testid="final-standing".*?<span class="min-w-0 flex-1 truncate">([^<]+)/g)].map((m) => m[1])
+    expect(names).toEqual(['Ana', 'Bo'])
+    expect(out).toContain('▲')
+    expect(out).not.toContain('Old')
+    expect(out).not.toContain('Tallying')
   })
 })
