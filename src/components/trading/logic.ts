@@ -295,3 +295,16 @@ export interface CancelFailure {
 export function cancelFailureToShow(failure: CancelFailure | null, orders: { id: string }[]): string | null {
   return failure && orders.some((o) => o.id === failure.orderId) ? failure.message : null
 }
+
+/**
+ * A reject was judged against the free cash and shares at that moment. Once
+ * either changes (a cancel frees cash, a fill adds shares), the message may
+ * no longer be true, so the ticket stops showing it.
+ */
+export function rejectIsStale(
+  shownAt: { freeCashCents: number; freeShares: number },
+  freeCashCents: number,
+  freeShares: number,
+): boolean {
+  return shownAt.freeCashCents !== freeCashCents || shownAt.freeShares !== freeShares
+}

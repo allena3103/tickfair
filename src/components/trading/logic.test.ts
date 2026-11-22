@@ -20,6 +20,7 @@ import {
   parseQtyInput,
   portfolioView,
   readHoldings,
+  rejectIsStale,
   rejectMessage,
   reservedBy,
   ticketReserve,
@@ -294,5 +295,16 @@ describe('cancelFailureToShow (E2-1)', () => {
   })
   it('shows nothing without a failure', () => {
     expect(cancelFailureToShow(null, [{ id: 'o-1' }])).toBeNull()
+  })
+})
+
+describe('rejectIsStale (BUG-1)', () => {
+  const shownAt = { freeCashCents: 50_000, freeShares: 0 }
+  it('keeps the reject while free cash and shares are unchanged', () => {
+    expect(rejectIsStale(shownAt, 50_000, 0)).toBe(false)
+  })
+  it('drops it once free shares or free cash change (a cancel or a fill)', () => {
+    expect(rejectIsStale(shownAt, 50_000, 5)).toBe(true)
+    expect(rejectIsStale(shownAt, 60_000, 0)).toBe(true)
   })
 })

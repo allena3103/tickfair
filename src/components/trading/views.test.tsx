@@ -135,4 +135,11 @@ describe('BatchClock and round break', () => {
     expect(out).not.toContain('Old')
     expect(out).not.toContain('Tallying')
   })
+
+  it('break overlay P&L shows cents, like the leaderboard and /rounds (BUG-3)', () => {
+    const r = { startsAt: 0, endsAt: 1, status: 'done' as const, winnerId: 'u1', standings: [{ userId: 'u1', displayName: 'Ana', equityCents: START_CASH_CENTS + 12_345 }] }
+    const out = html(<RoundBreakOverlay round={r} phaseEndsAt={0} currentUserId={null} onHide={noop} />)
+    expect(out).toContain('+$123.45')
+    expect(out).toContain('$100,123') // equity stays whole dollars
+  })
 })

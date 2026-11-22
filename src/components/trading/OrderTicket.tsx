@@ -13,7 +13,7 @@ import type { OrderType, Side, Ticker } from '@/shared/contracts'
 import { cn } from '@/lib/utils'
 import { formatCents, formatPrice, formatQty } from '@/theme/format'
 import { placeOrder, transportMessage } from './api'
-import { parsePriceInput, parseQtyInput, rejectMessage, ticketReserve } from './logic'
+import { parsePriceInput, parseQtyInput, rejectIsStale, rejectMessage, ticketReserve } from './logic'
 
 export interface TicketProps {
   ticker: Ticker
@@ -25,7 +25,7 @@ export interface TicketProps {
   className?: string
 }
 
-type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number; orderId: string } | { kind: 'error'; message: string }
+type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number; orderId: string } | { kind: 'error'; message: string; freeCashCents: number; freeShares: number }
 
 export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, freeShares, className }: TicketProps) {
   const ids = useId()
@@ -81,7 +81,13 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
       type === 'limit' && limitCents !== null ? { ticker, side, type, qty, limitCents } : { ticker, side, type, qty },
     )
     if (res.ok) setStatus({ kind: 'ok', batchId: res.data.batchId, orderId: res.data.orderId })
-    else setStatus({ kind: 'error', message: transportMessage(res.code) ?? rejectMessage(res.code) })
+    else
+      setStatus({
+        kind: 'error',
+        message: transportMessage(res.code) ?? rejectMessage(res.code),
+        freeCashCents,
+        freeShares,
+      })
   }
 
   const verb = side === 'buy' ? 'Buy' : 'Sell'
@@ -182,7 +188,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
             <p data-testid="ticket-blocked" className="text-muted-foreground">
               {blockedReason}
             </p>
-          ) : status.kind === 'error' ? (
+          ) : status.kind === 'error' && !rejectIsStale(status, freeCashCents, freeShares) ? (
             <p data-testid="ticket-error" role="alert" className="text-destructive">
               {status.message}
             </p>

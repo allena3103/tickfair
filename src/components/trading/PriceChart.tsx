@@ -32,12 +32,11 @@ export function PriceChart({
   openCents: number | undefined
   className?: string
 }) {
-  const tape = useQuery<TapeRecord>('tape', {
-    where: { roundId: roundId || NO_ROUND, ticker },
-    orderBy: 'at',
-    orderDir: 'desc',
-    limit: 300,
-  })
+  // No orderBy/limit: the SDK re-sends core.subscribe for such a query on
+  // every change in the collection (a new print each batch). A plain where
+  // query is patched in place. One round's tape for one ticker is bounded
+  // (~1 row per batch), and chartPoints sorts and keeps the newest 300.
+  const tape = useQuery<TapeRecord>('tape', { where: { roundId: roundId || NO_ROUND, ticker } })
   const points = useMemo(
     () => chartPoints(tape.records.map((r) => r.data), prints, ticker, roundId),
     [tape.records, prints, ticker, roundId],

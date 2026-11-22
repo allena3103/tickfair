@@ -288,6 +288,59 @@ test.describe('trade terminal (signed in)', () => {
     }
   })
 
+  test('terminal queries are not re-subscribed on every print (PERF)', async ({ users }, testInfo) => {
+    test.setTimeout(300_000)
+    const [a] = await users(1)
+    const page = a.page
+    type Sub = { subscriptionId: string; query: { collection: string; where?: Record<string, unknown>; orderBy?: string; limit?: number } }
+    const subs: { at: number; sub: Sub }[] = []
+    page.on('websocket', (ws) => {
+      ws.on('framesent', (f) => {
+        if (typeof f.payload !== 'string' || !f.payload.includes('core.subscribe')) return
+        try {
+          const msg = JSON.parse(f.payload) as { type: string; payload: Sub }
+          if (msg.type === 'core.subscribe') subs.push({ at: Date.now(), sub: msg.payload })
+        } catch {
+          // not JSON
+        }
+      })
+    })
+    await page.goto('/trade')
+    const terminal = page.getByTestId('trade-terminal')
+    await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 20_000 })
+    // Prints only flow in a live round; wait out a break (LESSONS 25).
+    await expect(terminal).toHaveAttribute('data-phase', 'live', { timeout: 200_000 })
+    await expect(page.getByTestId('chart-last')).toHaveText(/\d/, { timeout: 15_000 })
+    await page.waitForTimeout(3_000) // initial subscriptions settle
+
+    const start = Date.now()
+    const batchBefore = Number((await page.getByTestId('batch-id').textContent())?.replace('#', ''))
+    await page.waitForTimeout(30_000)
+    const batchAfter = Number((await page.getByTestId('batch-id').textContent())?.replace('#', ''))
+    // The window really covered live batches (each one mirrors new tape rows).
+    expect(batchAfter - batchBefore).toBeGreaterThanOrEqual(20)
+
+    const inWindow = subs.filter((s) => s.at >= start)
+    const countBy = (pick: (q: Sub['query']) => boolean) => {
+      const per = new Map<string, number>()
+      for (const { sub } of inWindow) if (pick(sub.query)) per.set(sub.subscriptionId, (per.get(sub.subscriptionId) ?? 0) + 1)
+      return Math.max(0, ...per.values())
+    }
+    // ui-trading's queries: the chart's tape (has a ticker), orders, fills, portfolios.
+    const mine = {
+      chartTape: countBy((q) => q.collection === 'tape' && q.where?.ticker !== undefined),
+      orders: countBy((q) => q.collection === 'orders'),
+      fills: countBy((q) => q.collection === 'fills'),
+      portfolios: countBy((q) => q.collection === 'portfolios'),
+    }
+    // ui-shell's Tape panel (no ticker in where); reported, not asserted.
+    const feedTape = countBy((q) => q.collection === 'tape' && q.where?.ticker === undefined)
+    testInfo.annotations.push({ type: 'core.subscribe in 30s', description: JSON.stringify({ ...mine, feedTape }) })
+    console.log(`[perf] core.subscribe re-sends per query in 30s: ${JSON.stringify({ ...mine, feedTape })}`)
+    // At most one re-send each (a socket reconnect re-sends every subscription once).
+    for (const [name, n] of Object.entries(mine)) expect(n, name).toBeLessThanOrEqual(1)
+  })
+
   test('the fairness note links to the batch auction explanation', async ({ users }) => {
     const [a] = await users(1)
     const page = a.page
