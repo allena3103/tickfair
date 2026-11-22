@@ -16,8 +16,8 @@ The director updates this file as each feature moves through the loop. Newest no
 | Worker | Wave | State | Check runs | Review rounds | Merged | Notes |
 |--------|------|-------|------------|---------------|--------|-------|
 | foundation | 0 | **merged** | builder ✓, director ✓ (tsc, lint, 20 unit, 11 e2e, build) | 2 (R1 FAIL: unapproved codes, resolved by a director spec update; R2 PASS) | ✓ | App registered `app_01M80AVDTA8NPYNJWXARJYZRPG`. Spike S1–S3 pass locally; prod subrequest cap still unknown. |
-| engine-core | 1 | building | – | – | – | |
-| market-sim | 1 | building | – | – | – | |
+| engine-core | 1 | in review (R1) | – | – | – | |
+| market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 43 unit, 11 e2e) | 1 (PASS) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
 | news | 1 | building | – | – | – | |
 | ui-shell | 1 | building | – | – | – | |
 | exchange-runtime | 2 | not started | – | – | – | |
@@ -30,3 +30,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - D0: three test accounts created (Trader A, B, C). Passwords were generated and piped straight into the CLI, so they never appeared in a command, file, or commit. The integration branch `agent/exchange` was created in `C:/DeepSpace-project-exchange`.
 - Wave 0: foundation merged into `agent/exchange`. Full suite green after the merge. The director also checked: unauthenticated `placeOrder` → 401; signed-in → `round_closed`; a forged `userId` is ignored; `/exchange/shock` is not publicly routed (404).
 - Director contract changes: `invalid_side`/`invalid_type` reject codes, `NewsDraw` in `contracts.ts`, and market orders store their band-edge limit. The spike gotchas are recorded in `LESSONS.md`.
+- Wave 1: market-sim merged; full suite green.
+- Security fix from news's finding: the scaffold's browser integration proxy forwarded any unlisted integration billed to the owner, so any signed-in member could spend the owner's credits through Claude. Now every owner-billed integration is refused for browsers (403), and cron trigger, pause, and resume are admin-only. Commit `86ca7aa`.
