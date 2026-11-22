@@ -20,7 +20,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
 | news | 1 | **merged** | – | – | – | |
 | ui-shell | 1 | **merged** | – | – | – | |
-| exchange-runtime | 2 | not started | – | – | – | |
+| exchange-runtime | 2 | paused (usage limit; resumes 23:31) | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
 | evaluator | final | not started | – | – | – | |
@@ -38,3 +38,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - news merged after 3 rounds (R1 FAIL, R2 PASS + 3 minors fixed, R3 PASS). The director registered `breakingNews`. Full suite: 138 unit, 15 e2e, build OK. Known minors left from R3: (a) cron's integration call doesn't unwrap the `{success, code}` envelope, so a credits error gets logged as "unrecognized shape" (it still fails closed; to be confirmed during the director's real-call check); (b) a manual admin cron trigger in the same minute as the scheduled run can publish two events; (c) the breakingNews 10s limit is per isolate (owner-only, so it can only spend the owner's own credits).
 - ui-shell merged after 3 rounds (all PASS; 4 + 2 minor fixes; one leftover R3 note: `publishedAt: null` renders as 1970, which the server never writes). Scaffold placeholder pages were removed. The director applied the floor theme first paint and the landing SEO copy. Full suite: 172 unit, 16 e2e (1 skipped until `/trade` exists), build OK.
 - Wave 2 (sequential): exchange-runtime building.
+- 21:15: the Claude Code 5-hour usage limit hit 100% while exchange-runtime was mid-task (code and API tests committed; report and manual run not done). The user chose to wait for the reset. The director cancelled the builder's auto-continue and scheduled a resume prompt for 23:31 that includes the new rules.
+- User decision: no paid LLM calls on dev/test servers unless `NEWS_LLM_IN_DEV=true` (commit `27fe7bb`, with unit tests). The director's own code changes (proxy fix, cron lockdown, LLM gate, landing polish) go through an independent reviewer too.
