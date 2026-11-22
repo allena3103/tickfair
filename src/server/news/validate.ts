@@ -67,11 +67,15 @@ export function extractJson(text: string): unknown {
 
 /**
  * Sentence count: terminators, optionally followed by closing quotes or
- * brackets, then whitespace or the end ("4.5%" is not a break).
+ * brackets, then whitespace or the end ("4.5%" is not a break). A final
+ * sentence with no terminator still counts.
  */
 export function countSentences(text: string): number {
-  const matches = text.trim().match(/[.!?]+["'”’)\]]*(?=\s|$)/g)
-  return Math.max(1, matches?.length ?? 0)
+  const t = text.trim()
+  if (!t) return 0
+  const terminated = t.match(/[.!?]+["'”’)\]]*(?=\s|$)/g)?.length ?? 0
+  const openEnded = /[.!?]+["'”’)\]]*$/.test(t) ? 0 : 1
+  return terminated + openEnded
 }
 
 function mentionsRealCompany(text: string): boolean {

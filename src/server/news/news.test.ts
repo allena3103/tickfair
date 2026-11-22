@@ -7,6 +7,7 @@ import { publishNews } from './publish.js'
 import type { PublishDeps } from './publish.js'
 import { countSentences, validateReply } from './validate.js'
 import { drawFor, minuteSeed, newsTick } from './tick.js'
+import { findLiveRoundId } from './runtime.js'
 
 const UP: NewsDraw = { ticker: 'ORBT', direction: 1, size: 'major', deltaBps: 600, rampBatches: 15 }
 const DOWN: NewsDraw = { ticker: 'CURA', direction: -1, size: 'minor', deltaBps: -150, rampBatches: 12 }
@@ -36,6 +37,7 @@ describe('validateReply', () => {
     ['headline too long', reply({ headline: 'Orbital Compute ' + 'x'.repeat(80), body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'headline_too_long'],
     ['body too long', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute ' + 'a'.repeat(280), sentiment: 'positive' }), UP, 'body_too_long'],
     ['three sentences with a quote', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute shipped. "Demand is strong." Margins rose.', sentiment: 'positive' }), UP, 'too_many_sentences'],
+    ['three sentences, last unterminated', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute wins. It grows. It hires', sentiment: 'positive' }), UP, 'too_many_sentences'],
     ['three sentences', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute wins. It grows. It hires.', sentiment: 'positive' }), UP, 'too_many_sentences'],
     ['real ticker', reply({ headline: 'Orbital Compute beats NVDA on chips', body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'unknown_ticker'],
     ['real ticker with $', reply({ headline: 'Orbital Compute tops $AAPL', body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'unknown_ticker'],
@@ -60,6 +62,8 @@ describe('validateReply', () => {
   it('counts sentences without splitting decimals', () => {
     expect(countSentences('Output rose 4.5% this year. More soon.')).toBe(2)
     expect(countSentences('No terminator')).toBe(1)
+    expect(countSentences('Orbital Compute wins. It grows. It hires')).toBe(3)
+    expect(countSentences('  ')).toBe(0)
     expect(countSentences('Orbital Compute shipped. "Demand is strong." Margins rose.')).toBe(3)
     expect(countSentences('Orbital Compute shipped. “Demand is strong.” Margins rose.')).toBe(3)
     expect(countSentences('Orbital Compute shipped (on time.) Margins rose.')).toBe(2)
@@ -75,6 +79,15 @@ describe('buildPrompt', () => {
     expect(p.user).toContain('significant')
     expect(`${p.system} ${p.user}`).not.toContain('600')
     expect(buildPrompt(DOWN).user).toContain('bad')
+  })
+
+  it('does not dictate the sentiment value, so the check is independent', () => {
+    for (const draw of [UP, DOWN]) {
+      const p = buildPrompt(draw)
+      expect(p.user).not.toMatch(/positive|negative|sentiment/i)
+      expect(p.system).toBe(buildPrompt(UP).system)
+    }
+    expect(buildPrompt(UP).system).toContain('tone of the item you actually wrote')
   })
 })
 
@@ -246,5 +259,32 @@ describe('newsTick', () => {
     const fns = { createRng: fakeRng(0), drawNewsEvent: () => UP }
     expect(drawFor(fns, 'VOLT', 0, 's')).toEqual({ ...UP, ticker: 'VOLT' })
     expect(drawFor(fns, undefined, 0, 's')).toEqual(UP)
+  })
+})
+
+describe('findLiveRoundId', () => {
+  const envWith = (records: unknown[]) => {
+    const fetch = vi.fn(async (_req: Request) => Response.json({ success: true, data: { records } }))
+    const env = {
+      DEEPSPACE_APP_ID: 'app_test',
+      OWNER_USER_ID: 'owner',
+      RECORD_ROOMS: { idFromName: () => 'id', get: () => ({ fetch }) },
+    } as unknown as Env
+    return { env, fetch }
+  }
+
+  it('returns the live round and asks only for live rounds', async () => {
+    const { env, fetch } = envWith([{ recordId: 'r7', data: { status: 'live', startsAt: 1 } }])
+    expect(await findLiveRoundId(env)).toBe('r7')
+    const body = JSON.parse(await fetch.mock.calls[0][0].text())
+    expect(body).toMatchObject({ tool: 'records.query', params: { collection: 'rounds', where: { status: 'live' } } })
+  })
+
+  it('returns null when the store hands back a done round', async () => {
+    expect(await findLiveRoundId(envWith([{ recordId: 'r6', data: { status: 'done', startsAt: 1 } }]).env)).toBeNull()
+  })
+
+  it('returns null when there are no rounds', async () => {
+    expect(await findLiveRoundId(envWith([]).env)).toBeNull()
   })
 })

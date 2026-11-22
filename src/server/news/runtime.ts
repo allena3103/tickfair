@@ -44,7 +44,9 @@ export async function findLiveRoundId(env: Env): Promise<string | null> {
     orderDir: 'desc',
     limit: 1,
   })
-  return data.records?.[0]?.recordId ?? null
+  // Trust the record, not the filter: only a round marked live opens a paid call.
+  const round = data.records?.[0]
+  return round && round.data?.status === 'live' ? round.recordId : null
 }
 
 /** `publishedAt` of the newest `news` record, or 0. */

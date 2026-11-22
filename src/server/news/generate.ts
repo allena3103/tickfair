@@ -39,7 +39,8 @@ const SYSTEM = [
   'Never mention real companies, real people, real stock tickers, real exchanges, or real products.',
   'Do not state prices or percentage moves.',
   'Reply with strict JSON only, no prose and no code fences:',
-  `{"headline": string (at most ${MAX_HEADLINE_CHARS} characters), "body": string (at most 2 sentences, at most ${MAX_BODY_CHARS} characters), "sentiment": "positive" | "negative"}`,
+  `{"headline": string (at most ${MAX_HEADLINE_CHARS} characters), "body": string (at most 2 sentences, at most ${MAX_BODY_CHARS} characters), "sentiment": "positive" | "negative"}.`,
+  'Set "sentiment" to the tone of the item you actually wrote, judged from its text.',
 ].join(' ')
 
 export function buildPrompt(draw: NewsDraw): LlmRequest {
@@ -49,7 +50,7 @@ export function buildPrompt(draw: NewsDraw): LlmRequest {
   const user = [
     `Company: ${name} (ticker ${draw.ticker}), a fictional ${sector} company.`,
     `Write ${weight} ${tone} news for this company's investors.`,
-    `Mention the company by name. Set "sentiment" to "${draw.direction === 1 ? 'positive' : 'negative'}".`,
+    'Mention the company by name.',
   ].join(' ')
   return { system: SYSTEM, user }
 }
