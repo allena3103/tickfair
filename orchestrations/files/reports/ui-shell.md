@@ -2,6 +2,23 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: evaluator run 5 (Leaderboard "1 traders")
+
+I rebased onto `agent/exchange` `4ee60e3`; it was a fast-forward. The fix commit is `026a16c`.
+
+**Fix:**
+- The Leaderboard panel header now uses `formatCount(rows.length, 'trader', 'traders')`, so it reads "1 trader" and "2 traders".
+- I grepped my files (`src/components/feed`, `src/components/shell`, `src/theme`, and the landing, home, and rounds pages) for other hand-built count strings. The header's online tooltip built its plural by hand (`count === 1 ? …`), so it now uses `formatCount` too. That leaves no other trader, batch, order, print, headline, or round count strings in my files. The "N online" panel meta needs no plural.
+
+**Test:** a new unit case in `views.test.tsx` renders one human plus one bot and expects `1 trader` and no `1 traders`, since bots aren't counted. Two humans give `2 traders`.
+
+**Checks on `026a16c`:**
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- Unit: 18 files, 286 tests passed.
+- `npx deepspace test run e2e --port 5185`, two runs: both exit 0, with 35 passed and 1 skipped (ui-trading's opt-in screenshot test).
+
+**Files touched (all mine):** `src/components/feed/{Leaderboard.tsx,views.test.tsx}` and `src/components/shell/AppHeader.tsx`.
+
 ## Update: evaluator run 4 (BUG-1, late joiner sees "on floor")
 
 I rebased onto `agent/exchange` `d765c28`; it was a fast-forward. The fix commit is `25036d2`. BUG-2 (closing one of two tabs drops the trader) is the known SDK per-user presence limitation and was left alone, as instructed.
@@ -265,4 +282,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `d765c28`. The final code commit is `25036d2` (run-4 BUG-1), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `4ee60e3`. The final code commit is `026a16c` (run-5 count wording), and the report commit is the next one, on top of it.

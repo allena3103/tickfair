@@ -26,6 +26,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui'
 import { useOnlineTraders } from '../feed/OnlineTraders'
+import { formatCount } from '@/theme/format'
 import { RoundStatus } from './RoundStatus'
 
 export function AppHeader() {
@@ -176,7 +177,7 @@ function OnlineCount() {
           </span>
         }
       />
-      <TooltipContent>{count === 1 ? '1 trader online' : `${count} traders online`}</TooltipContent>
+      <TooltipContent>{formatCount(count, 'trader', 'traders')} online</TooltipContent>
     </Tooltip>
   )
 }
