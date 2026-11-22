@@ -4,7 +4,8 @@
  * Mounted once in (app)/_layout.tsx so every page shares a single socket.
  * Peers publish `{ ticker }`, the ticker they're looking at. The trading
  * terminal calls `useFloorPresence().setTicker(t)` when the user switches
- * tabs; OnlineTraders and the header count read `peers`.
+ * tabs; OnlineTraders and the header count read `peers` and `myTicker`
+ * (the PresenceRoom never echoes your own state back in `peers`).
  *
  * Signed-out visitors don't join: peer identity comes from the verified JWT,
  * and a spectator has none.
@@ -35,13 +36,15 @@ interface RoomState {
 }
 
 export interface FloorPresence extends RoomState {
+  /** The ticker this user last published, or null. */
+  myTicker: Ticker | null
   /** Publish the ticker this user is watching. Re-sent after a reconnect. */
   setTicker: (ticker: Ticker | null) => void
 }
 
 const SIGNED_OUT: RoomState = { peers: [], status: 'signed-out' }
 
-const FloorPresenceContext = createContext<FloorPresence>({ ...SIGNED_OUT, setTicker: () => {} })
+const FloorPresenceContext = createContext<FloorPresence>({ ...SIGNED_OUT, myTicker: null, setTicker: () => {} })
 
 export function useFloorPresence(): FloorPresence {
   return useContext(FloorPresenceContext)
@@ -50,17 +53,20 @@ export function useFloorPresence(): FloorPresence {
 export function FloorPresenceProvider({ children }: { children: ReactNode }) {
   const { isSignedIn } = useAuthStatus()
   const [room, setRoom] = useState<RoomState>(SIGNED_OUT)
+  // Ref for the connector's reconnect re-send; state so the UI re-renders.
   const myTicker = useRef<Ticker | null>(null)
+  const [myTickerState, setMyTickerState] = useState<Ticker | null>(null)
   const send = useRef<((state: Record<string, unknown>) => void) | null>(null)
 
   const setTicker = useCallback((ticker: Ticker | null) => {
     myTicker.current = ticker
+    setMyTickerState(ticker)
     send.current?.({ ticker })
   }, [])
 
   const value = useMemo(
-    () => ({ ...(isSignedIn ? room : SIGNED_OUT), setTicker }),
-    [isSignedIn, room, setTicker],
+    () => ({ ...(isSignedIn ? room : SIGNED_OUT), myTicker: isSignedIn ? myTickerState : null, setTicker }),
+    [isSignedIn, room, myTickerState, setTicker],
   )
 
   // The connector is a sibling, not a wrapper, so signing in or out never

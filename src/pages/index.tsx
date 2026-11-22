@@ -42,20 +42,33 @@ import { seo } from '../seo'
 import { TICKERS } from '../shared/contracts'
 import { TICKER_INFO } from '../components/shell/tickers'
 import { Delta } from '../theme/Delta'
+import { useScrollToHash } from '../components/shell/useScrollToHash'
 
 export default function Landing() {
+  // Hash links (/#how-it-works) from other routes and on direct load: the
+  // section renders after JS, so the browser's own anchor jump misses it.
+  useScrollToHash()
   return (
     <>
       <Seo {...seo} path="/" />
       <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
         <header className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <span className="font-mono text-sm font-semibold uppercase tracking-[0.2em]">{APP_NAME}</span>
-          <Link
-            to="/trade"
-            className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-          >
-            Sign in
-          </Link>
+          <nav className="flex items-center gap-1">
+            <Link
+              to="#how-it-works"
+              data-testid="landing-how-link"
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              How it works
+            </Link>
+            <Link
+              to="/trade"
+              className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+            >
+              Sign in
+            </Link>
+          </nav>
         </header>
 
         <Hero />
@@ -233,10 +246,11 @@ function ClearingDiagram() {
         <text x="48" y="104" className="fill-primary" fontSize="11">
           clears 42.10
         </text>
-        <text x="236" y="54" className="fill-up" fontSize="10">
+        {/* each label sits just past the end of its own curve */}
+        <text x="240" y="152" className="fill-up" fontSize="10">
           ▲ buyers
         </text>
-        <text x="236" y="182" className="fill-down" fontSize="10">
+        <text x="240" y="62" className="fill-down" fontSize="10">
           ▼ sellers
         </text>
         <text x="4" y="20" className="fill-muted-foreground" fontSize="10">

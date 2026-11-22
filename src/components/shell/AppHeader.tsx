@@ -159,8 +159,8 @@ export function AppHeader() {
 }
 
 function OnlineCount() {
-  const { traders, status } = useOnlineTraders()
-  const count = traders.length
+  // Only traders connected to the floor right now; heartbeat-only users don't count.
+  const { onlineCount: count, status } = useOnlineTraders()
   return (
     <Tooltip>
       <TooltipTrigger

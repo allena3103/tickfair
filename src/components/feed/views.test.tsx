@@ -38,9 +38,22 @@ describe('Leaderboard', () => {
     expect(out.match(/data-testid="leaderboard-row"/g)).toHaveLength(3)
     expect(out).toContain('data-user-id="c" data-self="true"')
     expect(out).toContain('(you)')
-    // P&L carries an arrow and a sign, not just a color.
+    // P&L carries an arrow and a sign, not just a color, and shows cents.
     expect(out).toContain('▼')
-    expect(out).toContain('−$1')
+    expect(out).toContain('−$1.00')
+  })
+
+  it('shows cent-level P&L with a matching direction (+$0.27 is up, not "$0")', () => {
+    const out = html(
+      <Leaderboard
+        portfolios={[{ userId: 'u', displayName: 'U', roundId: 'r', cashCents: START_CASH_CENTS + 27, holdings: { ORBT: 0, CURA: 0, VOLT: 0 } }]}
+        last={last}
+      />,
+    )
+    expect(out).toContain('+$0.27')
+    expect(out).toContain('data-direction="up"')
+    // Equity stays in whole dollars (a column of totals); P&L carries the cents.
+    expect(out).toContain('$100,000<')
   })
 })
 
@@ -124,9 +137,11 @@ describe('OnlineTradersView', () => {
         ]}
       />,
     )
-    expect(out).toContain('2 online')
+    // Only the floor counts as online; the heartbeat-only user is listed apart.
+    expect(out).toContain('1 online')
     expect(out).toContain('ORBT')
-    expect(out).toContain('idle')
+    expect(out).toContain('Recently active')
+    expect(out).toContain('away')
   })
 })
 

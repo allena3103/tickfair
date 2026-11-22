@@ -5,7 +5,11 @@ export interface OnlineTrader {
   name: string
   /** Ticker this trader is watching, from floor presence. */
   ticker: Ticker | null
-  /** Connected to the floor right now (PresenceRoom), not just a recent heartbeat. */
+  /**
+   * Connected to the floor right now (PresenceRoom). Only these count as
+   * online. The rest had a usePresence heartbeat in the last ~5 minutes and
+   * are listed as "recently active".
+   */
   onFloor: boolean
   isSelf: boolean
 }
@@ -14,6 +18,8 @@ interface MergeInput {
   self: { userId: string; name: string } | null
   /** Whether this viewer's own floor socket is connected right now. */
   selfOnFloor: boolean
+  /** The ticker this viewer published (PresenceRoom peers exclude self). */
+  selfTicker: Ticker | null
   /** PresenceRoom peers (excludes self). */
   peers: { userId: string; userName: string; state: Record<string, unknown> }[]
   /** Roster users with a recent heartbeat (usePresence). */
@@ -25,12 +31,13 @@ function asTicker(v: unknown): Ticker | null {
 }
 
 /**
- * One row per online user: yourself first, then everyone on the floor, then
+ * One row per known user: yourself first, then everyone on the floor, then
  * users with only a recent heartbeat. Sorted by name within each group.
  */
-export function mergeOnline({ self, selfOnFloor, peers, heartbeat }: MergeInput): OnlineTrader[] {
+export function mergeOnline({ self, selfOnFloor, selfTicker, peers, heartbeat }: MergeInput): OnlineTrader[] {
   const byId = new Map<string, OnlineTrader>()
   for (const p of peers) {
+    if (p.userId === self?.userId) continue
     byId.set(p.userId, {
       userId: p.userId,
       name: p.userName || 'Trader',
@@ -43,19 +50,23 @@ export function mergeOnline({ self, selfOnFloor, peers, heartbeat }: MergeInput)
     if (byId.has(u.id) || u.id === self?.userId) continue
     byId.set(u.id, { userId: u.id, name: u.name || 'Trader', ticker: null, onFloor: false, isSelf: false })
   }
-  const others = [...byId.values()]
-    .filter((t) => t.userId !== self?.userId)
-    .sort((a, b) => Number(b.onFloor) - Number(a.onFloor) || a.name.localeCompare(b.name))
+  const others = [...byId.values()].sort(
+    (a, b) => Number(b.onFloor) - Number(a.onFloor) || a.name.localeCompare(b.name),
+  )
   if (!self) return others
-  const selfPeer = peers.find((p) => p.userId === self.userId)
   return [
     {
       userId: self.userId,
       name: self.name || 'You',
-      ticker: selfOnFloor && selfPeer ? asTicker(selfPeer.state.ticker) : null,
+      ticker: selfOnFloor ? selfTicker : null,
       onFloor: selfOnFloor,
       isSelf: true,
     },
     ...others,
   ]
+}
+
+/** The online count: traders connected to the floor right now (incl. you). */
+export function countOnFloor(traders: OnlineTrader[]): number {
+  return traders.filter((t) => t.onFloor).length
 }

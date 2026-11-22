@@ -61,6 +61,34 @@ test.describe('landing (static)', () => {
   })
 })
 
+test.describe('landing hash links', () => {
+  for (const [w, h] of [
+    [390, 844],
+    [1280, 600],
+  ] as const) {
+    test(`direct load of /#how-it-works scrolls to the section at ${w}x${h}`, async ({ page }) => {
+      await page.setViewportSize({ width: w, height: h })
+      await page.goto('/#how-it-works')
+      const section = page.locator('#how-it-works')
+      await expect(section.getByRole('heading', { name: 'How a batch auction works' })).toBeInViewport({
+        timeout: 10_000,
+      })
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    })
+  }
+
+  test('the in-page "How it works" link scrolls to the section', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+    const heading = page.locator('#how-it-works').getByRole('heading', { name: 'How a batch auction works' })
+    await expect(page.getByTestId('static-landing')).toBeVisible()
+    await expect(heading).not.toBeInViewport()
+    await page.getByTestId('landing-how-link').click()
+    await expect(page).toHaveURL(/\/#how-it-works$/)
+    await expect(heading).toBeInViewport({ timeout: 10_000 })
+  })
+})
+
 test.describe('app shell (signed out)', () => {
   test('app root, header, and nav are present on /home', async ({ page }) => {
     const errors = captureConsoleErrors(page)
@@ -155,14 +183,25 @@ test.describe('presence', () => {
       await expect(
         viewer.locator(`[data-testid="online-trader"][data-user-id="${otherId}"][data-on-floor="true"]`),
       ).toHaveCount(1, { timeout: 20_000 })
-      await expect(viewer.getByTestId('online-count')).not.toHaveText(/^\D*[01]\D*$/, { timeout: 20_000 })
+      // Exactly the two floor connections (this run's server has no one else).
+      await expect(viewer.getByTestId('online-count')).toHaveText(/^\D*2\D*$/, { timeout: 20_000 })
     }
 
-    // When B leaves, A's floor list drops B's live marker.
+    // When B leaves, A's floor list drops B's live marker and the count falls
+    // right away. B's heartbeat is still fresh, so B may stay listed, but only
+    // under "recently active" and not counted.
     await b.page.goto('/')
     await expect(
       a.page.locator(`[data-testid="online-trader"][data-user-id="${idB}"][data-on-floor="true"]`),
     ).toHaveCount(0, { timeout: 20_000 })
+    await expect(a.page.getByTestId('online-count')).toHaveText(/^\D*1\D*$/, { timeout: 20_000 })
+
+    // On the terminal, your own row shows the ticker you're watching, not "on floor".
+    await a.page.goto('/trade')
+    const mine = a.page
+      .getByTestId('online-traders')
+      .locator('[data-testid="online-trader"][data-self="true"] [data-testid="online-trader-status"]')
+    await expect(mine).toHaveText('ORBT', { timeout: 20_000 })
   })
 })
 

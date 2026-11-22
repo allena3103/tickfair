@@ -153,7 +153,7 @@ function RoundRow({ round, currentUserId }: { round: RoundItem; currentUserId?: 
                         {formatCents(s.equityCents, { whole: true })}
                       </td>
                       <td className="py-1.5 text-right">
-                        <Delta value={pnl} kind="money" whole />
+                        <Delta value={pnl} kind="money" />
                       </td>
                     </tr>
                   )
