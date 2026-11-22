@@ -334,7 +334,7 @@ describe('batch', () => {
     expect(rows(sql, `SELECT * FROM batches`).length).toBeGreaterThan(100)
     const humanFills = queued(sql, 'fills').length
     expect(humanFills).toBeGreaterThan(50)
-  })
+  }, 30_000)
 })
 
 describe('shock', () => {

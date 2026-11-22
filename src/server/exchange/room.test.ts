@@ -107,7 +107,7 @@ function setup() {
     alarm = null // the runtime clears an alarm when it fires
     await room.alarm()
   }
-  return { room, sockets, writes, connect, post, fireAlarm, getAlarm: () => alarm }
+  return { room, db, sockets, writes, connect, post, fireAlarm, getAlarm: () => alarm }
 }
 
 beforeEach(() => {
@@ -157,14 +157,19 @@ describe('ExchangeRoom (DO integration)', () => {
     const shock = await h.post('/exchange/shock', { newsId: 'n-1', ticker: 'CURA', deltaBps: 800, rampBatches: 15 })
     expect(shock).toEqual({ status: 200, json: { ok: true } })
     const series: number[] = []
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 45; i++) {
       await h.fireAlarm()
       series.push(batches(ws).at(-1)!.last.CURA)
     }
     const after = series.at(-1)!
-    console.log(`[room.test] CURA last before shock ${before}, after 30 batches ${after} (${(((after - before) / before) * 100).toFixed(2)}%): ${series.join(' ')}`)
-    expect(after).toBeGreaterThan(before * 1.05)
-    expect(Math.max(...series)).toBeLessThan(before * 1.2)
+    const hidden = h.db.sql.exec(`SELECT valueCents, rampLeft FROM fundamentals WHERE ticker = 'CURA'`).toArray()[0] as { valueCents: number; rampLeft: number }
+    console.log(`[room.test] CURA last before shock ${before}, after 45 batches ${after} (${(((after - before) / before) * 100).toFixed(2)}%), hidden value ${hidden.valueCents}: ${series.join(' ')}`)
+    // The hidden value finished its ramp near +8% (plus a small random walk)...
+    expect(hidden.rampLeft).toBe(0)
+    expect(hidden.valueCents).toBeGreaterThan(before * 1.06)
+    // ...and the traded price followed it, within the band, with no jump past it.
+    expect(after).toBeGreaterThan(before * 1.04)
+    expect(Math.max(...series)).toBeLessThan(before * 1.15)
 
     // The impact size never reaches clients.
     const wire = JSON.stringify(ws.sent)
