@@ -40,3 +40,4 @@ The director updates this file as each feature moves through the loop. Newest no
 - Wave 2 (sequential): exchange-runtime building.
 - 21:15: the Claude Code 5-hour usage limit hit 100% while exchange-runtime was mid-task (code and API tests committed; report and manual run not done). The user chose to wait for the reset. The director cancelled the builder's auto-continue and scheduled a resume prompt for 23:31 that includes the new rules.
 - User decision: no paid LLM calls on dev/test servers unless `NEWS_LLM_IN_DEV=true` (commit `27fe7bb`, with unit tests). The director's own code changes (proxy fix, cron lockdown, LLM gate, landing polish) go through an independent reviewer too.
+- Director changes reviewed: R1 PASS with minors (dead `anonymous` flag, stale comment, unused import), fixed in `8a84170`; R2 PASS with no findings. Full suite: 174 unit, 16 e2e, build OK.
