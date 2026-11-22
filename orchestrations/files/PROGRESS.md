@@ -19,7 +19,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | engine-core | 1 | **merged** | – | – | – | |
 | market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
 | news | 1 | **merged** | – | – | – | |
-| ui-shell | 1 | in review (R2) | – | – | – | |
+| ui-shell | 1 | **merged** | – | – | – | |
 | exchange-runtime | 2 | not started | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
@@ -36,3 +36,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - The user chose to run wave 2 **sequentially** (session usage meter at 70%): exchange-runtime first, then ui-trading.
 - engine-core follow-up merged (R2 PASS + 2 minors fixed, R3 PASS). Full suite green.
 - news merged after 3 rounds (R1 FAIL, R2 PASS + 3 minors fixed, R3 PASS). The director registered `breakingNews`. Full suite: 138 unit, 15 e2e, build OK. Known minors left from R3: (a) cron's integration call doesn't unwrap the `{success, code}` envelope, so a credits error gets logged as "unrecognized shape" (it still fails closed; to be confirmed during the director's real-call check); (b) a manual admin cron trigger in the same minute as the scheduled run can publish two events; (c) the breakingNews 10s limit is per isolate (owner-only, so it can only spend the owner's own credits).
+- ui-shell merged after 3 rounds (all PASS; 4 + 2 minor fixes; one leftover R3 note: `publishedAt: null` renders as 1970, which the server never writes). Scaffold placeholder pages were removed. The director applied the floor theme first paint and the landing SEO copy. Full suite: 172 unit, 16 e2e (1 skipped until `/trade` exists), build OK.
+- Wave 2 (sequential): exchange-runtime building.
