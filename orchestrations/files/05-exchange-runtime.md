@@ -33,8 +33,12 @@ Changing `src/engine/**`: report bugs to the director, who routes them. Also out
    - if S3 says to throttle, mirror per-user records every batch and `tickers` every N batches, and document the choice.
 5. **Shock** (`POST /exchange/shock`): `applyShock`, starting from the next batch. Returns `round_closed` during the break.
 6. **Rounds.** Lifecycle `live` (15 min) then `break` (2 min):
-   - at the end of a round: cancel all orders, release reservations, mark to market, write the `rounds` record with standings and the winner (bots excluded), broadcast `ex.phase`;
-   - at the start of a round: new `roundId`, reset fundamentals and bots, accounts enroll lazily.
+   - **at the start of a round:** new `roundId`; reset fundamentals and bots; **seed bot accounts** (`bot:mm`, `bot:noise`) with cash and shares so long-only bots can sell (LESSONS 11); **write the `rounds` record with `status: 'live'`, `startsAt`, `endsAt` immediately** (news's cron and ui-shell's `useCurrentRound` find the live round from it); write/refresh the 3 `tickers` records (`lastCents`, `openCents`); human accounts enroll lazily;
+   - **at the end of a round:** cancel all orders, release reservations, mark to market, update the `rounds` record to `status: 'done'` with standings and the winner (bots excluded; `winnerId` is always a human or the field is empty), broadcast `ex.phase`;
+   - **first start and idle resume:** if no round exists when the room wakes (first order, first socket, or shock), start one. If the room wakes from an idle pause after `phaseEndsAt` has passed, close the stale round properly (step above), then start the next one. Never leave a `rounds` record stuck at `live`.
+   - **durations:** read `ROUND_LIVE_MS` and `ROUND_BREAK_MS` from the contracts, but allow the optional env vars `EXCHANGE_ROUND_LIVE_MS` and `EXCHANGE_ROUND_BREAK_MS` to override them. They're only set for local test and evaluation runs, so a round rollover can be exercised in about a minute. Document both in the report. Nothing else may be configurable.
+   - **market-maker inventory:** update `BotState.inventory` from the market maker's fills every batch (LESSONS 12). Clamp every bot intent with engine-core's band function before reserving it. A rejected bot intent is logged and skipped; it never halts a batch (LESSONS 15).
+   - **`rate_limited`:** enforce `MAX_ORDERS_PER_BATCH` per trader per batch here (engine-core doesn't).
 7. **WS.** Send `ex.snapshot` on connect, `ex.batch` per batch, and `ex.phase` on transitions. Depth shows the top 10 levels aggregated, with no trader ids.
 8. **Self-check.** After every batch, assert the PLAN §4 invariants on touched accounts. On a violation, log `[exchange] INVARIANT <detail>` at error level and halt the round. Failing loud beats corrupting balances.
 9. **`src/actions/orders.ts`.** Finalize param validation (types and ranges) before the DO call. The DO stays the authority.
