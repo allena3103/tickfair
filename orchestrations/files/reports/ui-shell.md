@@ -2,6 +2,28 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: review of evaluator run 3 fixes (FAIL, F1-F4 fixed)
+
+The fix commit is `7243698`.
+
+| # | Finding | Fix |
+|---|---------|-----|
+| F1 | The PERF e2e grouped by subscription id, which is vacuous if the SDK re-subscribes with fresh ids, and its shell-tape filter could match nothing. | Every `core.subscribe` frame is now counted by query fingerprint (collection + where + orderBy + orderDir + limit), whatever its id. The shell tape is identified as a `tape` query whose `where` is exactly `{roundId}` (the chart's adds `ticker`). Before the reset, the test asserts at least one shell-tape subscribe was seen. After the reset, it allows at most one new subscribe in 30 s for each of shell tape, news, and portfolios (portfolios on `/home` only), which leaves room for a round rollover. The test now first waits for a live round with 45 s or more left, from the terminal's `data-phase` and `data-phase-ends-at`, so the window always has prints. That fixed a `/home` run that saw only 2 prints because the round was ending. |
+| F2 | `RoundsList` imported `plural` from ui-trading's `trading/logic`. | New `formatCount(n, one, many)` in `src/theme/format.ts`, with a unit test (1, 0, 2, 1,200), used by `RoundsList`. The BUG-2 view test still covers "1 trader". |
+| F3 | The limit-less tape query wasn't checked to show the newest print first. | Tape rows now carry `data-record-id` and `data-at`. The e2e collects the tape records from `core.record_change` frames, takes the newest print of the shell's round in `buildTape` order (time, then batch, then id), and asserts the first tape row has that record id (`toPass`, up to 10 s). |
+| F4 | The `resubscribesOnChange` test was tautological. | Removed the test and the export. The query-builder test now asserts each builder's exact output: an equality `where` only, with no orderBy, orderDir, or limit. |
+
+**Proof:** with the pre-fix Tape, NewsFeed, and home restored temporarily, the new e2e fails on both pages. The shell-tape fingerprint `["tape",{"roundId":…},"at","desc",60]` re-subscribed 27 times on `/home` (27 prints) and 26 times on `/trade` (26 prints). With the fix, both pages send 0 new shell subscribes, the newest-print check passes, and the chart's query (ui-trading) still re-sends about once per print (28–29).
+
+**Checks on `7243698`:**
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- Unit: 17 files, 275 tests passed (one removed, one added).
+- `npx deepspace test run e2e --port 5185`, two runs: both exit 0, with 33 passed and 1 skipped (ui-trading's opt-in screenshot test).
+
+**Files touched:**
+- **Mine:** `src/theme/{format.ts,format.test.ts}`, `src/components/feed/{RoundsList.tsx,Tape.tsx,queries.ts,logic.test.ts}`.
+- **`tests/smoke.spec.ts`:** only the "feed subscriptions" describe.
+
 ## Update: evaluator run 3 items (BUG-2, PERF)
 
 I rebased onto `agent/exchange` `e6cc3e4`. It was a fast-forward, since my earlier commits were already merged. The fix commit is `4fbf349`.
@@ -209,4 +231,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `e6cc3e4`. The final code commit is `4fbf349` (BUG-2 + PERF), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `e6cc3e4`. The final code commit is `7243698` (reviewer F1-F4), and the report commit is the next one, on top of it.
