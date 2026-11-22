@@ -1,35 +1,43 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
+import type { Page } from '@playwright/test'
 import { captureConsoleErrors } from './helpers/errors'
 
 /**
- * Smoke tests covering both page kinds this template ships:
- *   - '/'      → the static landing (top level of src/pages/): no providers,
- *                so no auth fetch and no records WebSocket on load.
- *   - '/home'  → a dynamic page (under src/pages/(app)/): the providers mount,
- *                the nav shell renders, and the records WebSocket connects.
+ * Smoke tests for the ui-shell surfaces:
+ *   - '/'        static landing: no providers, no auth fetch, no records socket.
+ *   - '/home'    the floor overview inside the (app) providers.
+ *   - '/rounds'  past rounds (empty until the exchange runtime writes some).
+ *   - '/trade'   ui-trading's terminal; here we only check the signed-out gate.
+ *   - presence   two signed-in users see each other in OnlineTraders.
  *
- * The "static contract" test is the guardrail for the per-page opt-out: if
- * someone moves the providers back up into _app.tsx, it fails.
+ * The "static contract" test guards the per-page opt-out: if someone moves
+ * the providers back up into _app.tsx, it fails.
  */
 
-/** Wait for the React app shell (present on every page). */
-async function waitForApp(page: import('@playwright/test').Page) {
-  await page.waitForSelector('[data-testid="app-root"]', { timeout: 15000 })
+async function waitForApp(page: Page) {
+  await page.waitForSelector('[data-testid="app-root"]', { timeout: 15_000 })
 }
 
-test.describe('Smoke tests', () => {
-  test('static landing loads without JS errors', async ({ page }) => {
+test.describe('landing (static)', () => {
+  test('renders real content without JS errors', async ({ page }) => {
     const errors = captureConsoleErrors(page)
     await page.goto('/')
     await waitForApp(page)
     await expect(page.getByTestId('static-landing')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/One second\.\s*One price\.\s*Everyone\./)
+    await expect(page.getByRole('heading', { name: 'How a batch auction works' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'The rules' })).toBeVisible()
+    await expect(page.getByText('$100,000 fake dollars per round')).toBeVisible()
+    await expect(page.getByTestId('landing-cta').first()).toHaveAttribute('href', '/trade')
+    // Scaffold placeholder copy is gone.
+    await expect(page.getByText('A DeepSpace app with a static front door')).toHaveCount(0)
+    // No providers on this page, so no auth overlay and no app chrome.
+    await expect(page.getByTestId('auth-overlay')).toHaveCount(0)
+    await expect(page.getByTestId('app-navigation')).toHaveCount(0)
     expect(errors).toEqual([])
   })
 
-  test('landing carries one title, one description, one canonical', async ({ page }) => {
-    // <Seo> (src/pages/index.tsx, values from src/seo.ts) hoists these into
-    // <head>. Exactly one of each: index.html ships no static description or
-    // canonical, because React 19 would not dedupe against them on mount.
+  test('carries one title, one description, one canonical', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByTestId('static-landing')).toBeVisible()
     await expect(page).toHaveTitle(/\S/)
@@ -37,12 +45,12 @@ test.describe('Smoke tests', () => {
     expect(await page.locator('head link[rel="canonical"]').count()).toBe(1)
   })
 
-  test('static contract: landing fires no auth request, opens no websocket', async ({ page }) => {
+  test('static contract: fires no auth request, opens no websocket', async ({ page }) => {
     const offenders: string[] = []
     page.on('request', (req) => {
       if (req.url().includes('/api/auth/')) offenders.push(req.url())
     })
-    // Only the DO room route counts — vite's own HMR socket is a dev artifact.
+    // Only DO room routes count; vite's HMR socket is a dev artifact.
     page.on('websocket', (ws) => {
       if (new URL(ws.url()).pathname.startsWith('/ws/')) offenders.push(`ws: ${ws.url()}`)
     })
@@ -51,21 +59,111 @@ test.describe('Smoke tests', () => {
     await page.waitForTimeout(1500)
     expect(offenders).toEqual([])
   })
+})
 
-  test('dynamic app boundary mounts on /home', async ({ page }) => {
+test.describe('app shell (signed out)', () => {
+  test('app root, header, and nav are present on /home', async ({ page }) => {
+    const errors = captureConsoleErrors(page)
     await page.goto('/home')
-    await expect(page.getByTestId('app-navigation')).toBeVisible({ timeout: 15000 })
+    await waitForApp(page)
+    const nav = page.getByTestId('app-navigation')
+    await expect(nav).toBeVisible({ timeout: 15_000 })
+    await expect(nav.getByRole('link', { name: 'Trade' })).toHaveAttribute('href', '/trade')
+    await expect(nav.getByRole('link', { name: 'Rounds' })).toHaveAttribute('href', '/rounds')
+    await expect(page.getByTestId('round-status')).toBeVisible()
+    await expect(page.getByTestId('online-count')).toBeVisible()
+    await expect(page.getByTestId('nav-sign-in-button')).toBeVisible()
+    await expect(page.getByTestId('nav-user-name')).toHaveCount(0)
+    await expect(page.getByRole('heading', { level: 1, name: 'The floor' })).toBeVisible()
+    await expect(page.getByText('placeholder page')).toHaveCount(0)
+    expect(errors).toEqual([])
   })
 
-  test('sign-in button visible when logged out', async ({ page }) => {
+  test('/home feeds settle into their empty states', async ({ page }) => {
     await page.goto('/home')
-    await expect(page.getByTestId('nav-sign-in-button')).toBeVisible({ timeout: 15000 })
-    await expect(page.getByTestId('nav-user-name')).toHaveCount(0)
+    for (const id of ['leaderboard', 'news-feed', 'tape', 'online-traders']) {
+      const panel = page.getByTestId(id)
+      await expect(panel).toBeVisible({ timeout: 15_000 })
+      // Loading resolves to empty (or real rows, once the exchange is live).
+      await expect(panel.locator('[data-state="loading"]')).toHaveCount(0, { timeout: 15_000 })
+      await expect(panel.locator('[data-state="error"]')).toHaveCount(0)
+    }
+    await expect(page.getByTestId('online-traders')).toContainText('Sign in to show up on the floor.')
+  })
+
+  test('/rounds renders its empty state', async ({ page }) => {
+    const errors = captureConsoleErrors(page)
+    await page.goto('/rounds')
+    await expect(page.getByRole('heading', { level: 1, name: 'Past rounds' })).toBeVisible({ timeout: 15_000 })
+    const list = page.getByTestId('rounds-list')
+    await expect(list.locator('[data-state="loading"]')).toHaveCount(0, { timeout: 15_000 })
+    const rows = await list.getByTestId('round-row').count()
+    if (rows === 0) await expect(list.getByText('No finished rounds yet')).toBeVisible()
+    await expect(page.getByTestId('app-navigation').getByRole('link', { name: 'Rounds' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(errors).toEqual([])
+  })
+
+  test('the sign-in button opens the auth overlay', async ({ page }) => {
+    await page.goto('/home')
+    await page.getByTestId('nav-sign-in-button').click()
+    await expect(page.getByTestId('auth-overlay')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('/trade is gated when signed out', async ({ page }) => {
+    await page.goto('/trade')
+    await waitForApp(page)
+    // ui-trading creates /trade in wave 2; until then the route 404s. Both
+    // the 404 page and the gate load lazily, so wait for one of them to
+    // actually render before deciding (isVisible() would not wait).
+    const notFound = page.locator('text=404')
+    const gate = page.getByText('Sign in to continue').or(page.getByTestId('auth-overlay'))
+    await expect(notFound.or(gate).first()).toBeVisible({ timeout: 15_000 })
+    const missing = await notFound.first().isVisible()
+    test.skip(missing, '/trade not built yet (owned by ui-trading); re-enable check after wave 2 merge')
+    await expect(gate.first()).toBeVisible()
   })
 
   test('unknown route shows 404', async ({ page }) => {
     await page.goto('/nonexistent-page-xyz')
     await waitForApp(page)
     await expect(page.locator('text=404')).toBeVisible()
+  })
+})
+
+test.describe('presence', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 2, `Needs 2 usable test accounts, found ${usable}.`)
+
+  test('two signed-in traders see each other in OnlineTraders', async ({ users }) => {
+    const [a, b] = await users(2)
+    await Promise.all([a.page.goto('/home'), b.page.goto('/home')])
+
+    const selfId = async (page: Page) => {
+      const self = page.getByTestId('online-traders').locator('[data-testid="online-trader"][data-self="true"]')
+      await expect(self).toHaveCount(1, { timeout: 20_000 })
+      return (await self.getAttribute('data-user-id')) as string
+    }
+    const [idA, idB] = await Promise.all([selfId(a.page), selfId(b.page)])
+    expect(idA).not.toBe(idB)
+
+    // Each sees the other live on the floor (PresenceRoom), not just a heartbeat.
+    for (const [viewer, otherId] of [
+      [a.page, idB],
+      [b.page, idA],
+    ] as const) {
+      await expect(
+        viewer.locator(`[data-testid="online-trader"][data-user-id="${otherId}"][data-on-floor="true"]`),
+      ).toHaveCount(1, { timeout: 20_000 })
+      await expect(viewer.getByTestId('online-count')).not.toHaveText(/^\D*[01]\D*$/, { timeout: 20_000 })
+    }
+
+    // When B leaves, A's floor list drops B's live marker.
+    await b.page.goto('/')
+    await expect(
+      a.page.locator(`[data-testid="online-trader"][data-user-id="${idB}"][data-on-floor="true"]`),
+    ).toHaveCount(0, { timeout: 20_000 })
   })
 })

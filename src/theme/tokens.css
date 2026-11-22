@@ -1,0 +1,121 @@
+/*
+ * tickfair "floor" theme: a dark trading board with one amber accent.
+ * See docs/design/style-tile.md for the reasoning behind each value.
+ *
+ * This @theme block is imported by src/styles.css after the scaffold's own
+ * block, so it replaces the placeholder slate palette as the app default.
+ * Fonts are self-hosted (SIL OFL, see fonts/OFL.txt) because the production
+ * CSP only allows same-origin stylesheets.
+ */
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
+}
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  --color-background: #0c0e10;
+  --color-foreground: #e6e4dc;
+  --color-card: #13161a;
+  --color-card-foreground: #e6e4dc;
+  --color-popover: #171b20;
+  --color-popover-foreground: #e6e4dc;
+  --color-primary: #f2b33d;
+  --color-primary-foreground: #14110a;
+  --color-secondary: #1b1f24;
+  --color-secondary-foreground: #e6e4dc;
+  --color-muted: #1b1f24;
+  --color-muted-foreground: #9aa0a6;
+  --color-accent: #22272d;
+  --color-accent-foreground: #e6e4dc;
+  --color-destructive: #f0605a;
+  --color-destructive-foreground: #14110a;
+  --color-border: #262b31;
+  --color-input: #2c3238;
+  --color-ring: #f2b33d;
+  --radius: 0.25rem;
+
+  --color-shell: #090b0c;
+  --color-shell-panel: #13161a;
+
+  /* Price direction. Always paired with a sign and an arrow (Delta.tsx). */
+  --color-up: #3ccf8e;
+  --color-up-muted: #12291f;
+  --color-down: #f0605a;
+  --color-down-muted: #2e1716;
+
+  --animate-batch-sweep: batch-sweep 3s linear infinite;
+}
+
+/* Landing hero: the one-second batch, slowed to a 3 s loop so it reads.
+   0–60% the window fills; 60–66% it snaps shut; the rest holds the print. */
+@keyframes batch-sweep {
+  0% { transform: scaleX(0); }
+  60% { transform: scaleX(1); }
+  100% { transform: scaleX(1); }
+}
+@keyframes chip-in {
+  0%, 8% { opacity: 0; transform: translateY(-10px); }
+  16%, 60% { opacity: 1; transform: translateY(0); }
+  70%, 100% { opacity: 0; transform: translateY(14px); }
+}
+@keyframes print-stamp {
+  0%, 62% { opacity: 0; transform: scale(1.12); }
+  68%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+@keyframes clear-line {
+  0%, 60% { opacity: 0; }
+  64%, 96% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@utility animate-chip-in {
+  animation: chip-in 3s linear infinite both;
+}
+@utility animate-print-stamp {
+  animation: print-stamp 3s steps(1, end) infinite both;
+}
+@utility animate-clear-line {
+  animation: clear-line 3s linear infinite both;
+}
+
+/* Reduced motion: freeze every landing loop on its "cleared" frame. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-batch-sweep,
+  .animate-chip-in,
+  .animate-print-stamp,
+  .animate-clear-line {
+    animation: none;
+  }
+  .animate-chip-in {
+    opacity: 1;
+  }
+}

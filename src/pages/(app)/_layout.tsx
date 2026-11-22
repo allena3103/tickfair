@@ -11,15 +11,16 @@
  * page in or out of (app)/ to flip it between dynamic and static. Require
  * sign-in on top of the data layer by nesting under (app)/(protected)/.
  *
- * This is where the app chrome (Navigation) lives, so static pages can present
- * their own layout without inheriting it.
+ * This is where the app chrome (AppHeader) and the shared floor-presence
+ * connection live, so static pages present their own layout without either.
  */
 
 import { Suspense, type ReactNode } from 'react'
 import { Outlet } from 'react-router-dom'
 import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope, AgentTools } from 'deepspace'
-import Navigation from '../../components/Navigation'
+import { AppHeader } from '../../components/shell/AppHeader'
+import { FloorPresenceProvider } from '../../components/shell/FloorPresence'
 import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
 import { schemas } from '../../schemas'
@@ -31,14 +32,16 @@ export default function AppLayout() {
           when <Seo> unmounts, so every route without <Seo> sets its own. */}
       <title>{APP_NAME}</title>
       <AuthBoot>
-        <div className="flex h-screen flex-col bg-background overflow-hidden">
-          <Navigation />
-          <main className="flex-1 overflow-y-auto min-h-0">
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
-              <Outlet />
-            </Suspense>
-          </main>
-        </div>
+        <FloorPresenceProvider>
+          <div className="flex h-screen flex-col overflow-hidden bg-background">
+            <AppHeader />
+            <main className="min-h-0 flex-1 overflow-y-auto">
+              <Suspense fallback={<div aria-busy="true" className="h-full bg-background" />}>
+                <Outlet />
+              </Suspense>
+            </main>
+          </div>
+        </FloorPresenceProvider>
       </AuthBoot>
     </DeepSpaceAuthProvider>
   )

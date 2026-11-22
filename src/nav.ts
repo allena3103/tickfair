@@ -1,9 +1,6 @@
 /**
- * Navigation Config
- *
- * Add one entry per nav item. Routes are handled by generouted
- * (file-based routing in src/pages/), this just controls what
- * appears in the navigation bar.
+ * Navigation config: one entry per header link. Routes come from the files
+ * in src/pages/ (generouted); this only controls what the header shows.
  */
 
 import type { Role } from './constants'
@@ -16,9 +13,7 @@ export interface NavItem {
 }
 
 export const nav: NavItem[] = [
-  { path: '/home', label: 'Home' },
-  { path: '/settings', label: 'Settings' },
-  // The /api-status debug page still exists — add
-  // `{ path: '/api-status', label: 'API Status', devOnly: true }` to surface it.
-  // ── Features add nav items below this line ──
+  // /trade is ui-trading's terminal (src/pages/(app)/(protected)/trade.tsx).
+  { path: '/trade', label: 'Trade' },
+  { path: '/rounds', label: 'Rounds' },
 ]

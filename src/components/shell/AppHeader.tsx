@@ -1,21 +1,16 @@
 /**
- * Top nav — minimal placeholder bar wired to the app's mechanisms:
- * nav.ts-driven links (with role/dev filtering), sign-in via <AuthOverlay>,
- * and sign-out. Restyle or rebuild it freely; keep the data-testid hooks
- * (`app-navigation`, `nav-sign-in-button`, `nav-user-name`, `nav-user-email`)
- * — the shipped tests rely on them. `nav-user-email` is the one that carries
- * an identity the test can check exactly: a display name is optional, the
- * email is the credential the session was opened with.
+ * App header: wordmark, nav (src/nav.ts), round status, online count, and
+ * the user menu. Keeps the scaffold test ids `app-navigation`,
+ * `nav-sign-in-button`, `nav-user-name`, and `nav-user-email`.
  */
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
-import { APP_NAME } from '../constants'
-import type { Role } from '../constants'
-import { nav } from '../nav'
-import { cn } from '../lib/utils'
+import { ChevronDown, LogOut, Menu, Users, X } from 'lucide-react'
+import { APP_NAME, type Role } from '@/constants'
+import { nav } from '@/nav'
+import { cn } from '@/lib/utils'
 import {
   Avatar,
   AvatarFallback,
@@ -26,9 +21,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from './ui'
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui'
+import { useOnlineTraders } from '../feed/OnlineTraders'
+import { RoundStatus } from './RoundStatus'
 
-export default function Navigation() {
+export function AppHeader() {
   const { isLoaded, isSignedIn, user, userLoading } = useAuthProfileReady({ requireUser: true })
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -37,7 +37,6 @@ export default function Navigation() {
   const profileReady = !isSignedIn || (!userLoading && !!user)
   const userRole = (user?.role ?? 'anonymous') as Role | 'anonymous'
 
-  // Close the mobile menu when navigating
   useEffect(() => {
     setMobileMenuOpen(false)
   }, [location.pathname])
@@ -58,20 +57,21 @@ export default function Navigation() {
         to={item.path}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'px-3 py-1.5 text-sm',
+          'relative px-3 py-1.5 text-sm',
           active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
         )}
       >
         {item.label}
+        {active && <span aria-hidden className="absolute inset-x-3 -bottom-[9px] h-0.5 bg-primary" />}
       </Link>
     )
   }
 
   return (
     <>
-      <nav data-testid="app-navigation" className="border-b border-border bg-background">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
+      <nav data-testid="app-navigation" className="shrink-0 border-b border-border bg-shell">
+        <div className="flex h-12 items-center gap-3 px-4">
+          <Link to="/home" className="font-mono text-sm font-semibold uppercase tracking-[0.2em] text-foreground">
             {APP_NAME}
           </Link>
 
@@ -79,10 +79,11 @@ export default function Navigation() {
 
           <div className="flex-1" />
 
+          <RoundStatus className="hidden sm:inline-flex" />
+          <OnlineCount />
+
           {!isLoaded ? null : isSignedIn && !profileReady ? (
-            /* Signed in, profile still loading — skeleton pill, never the
-               Sign in button (that would offer sign-in to a signed-in user). */
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pl-1 pr-2.5">
+            <div className="flex items-center gap-2 rounded-md border border-border py-1 pl-1 pr-2.5">
               <div className="h-6 w-6 animate-pulse rounded-full bg-muted" />
               <div className="hidden h-4 w-20 animate-pulse rounded-md bg-muted sm:block" />
             </div>
@@ -92,7 +93,7 @@ export default function Navigation() {
                 render={
                   <button
                     aria-label="Account menu"
-                    className="group flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pl-1 pr-2.5 text-sm transition-colors hover:bg-card"
+                    className="group flex items-center gap-2 rounded-md border border-border py-1 pl-1 pr-2.5 text-sm transition-colors hover:bg-accent"
                   >
                     <Avatar className="h-6 w-6 ring-1 ring-inset ring-border">
                       <AvatarImage src={user.imageUrl ?? undefined} referrerPolicy="no-referrer" />
@@ -100,10 +101,7 @@ export default function Navigation() {
                         {(user.name?.[0] ?? user.email?.[0] ?? '?').toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <span
-                      data-testid="nav-user-name"
-                      className="hidden max-w-[140px] truncate text-foreground sm:inline"
-                    >
+                    <span data-testid="nav-user-name" className="hidden max-w-[140px] truncate text-foreground sm:inline">
                       {user.name || user.email}
                     </span>
                     <ChevronDown
@@ -115,13 +113,8 @@ export default function Navigation() {
               />
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
-                  <div className="truncate font-medium text-foreground">
-                    {user.name || 'Signed in'}
-                  </div>
-                  <div
-                    data-testid="nav-user-email"
-                    className="truncate text-xs font-normal text-muted-foreground"
-                  >
+                  <div className="truncate font-medium text-foreground">{user.name || 'Signed in'}</div>
+                  <div data-testid="nav-user-email" className="truncate text-xs font-normal text-muted-foreground">
                     {user.email}
                   </div>
                 </DropdownMenuLabel>
@@ -136,7 +129,7 @@ export default function Navigation() {
             <button
               data-testid="nav-sign-in-button"
               onClick={() => setShowAuthModal(true)}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
             >
               Sign in
             </button>
@@ -153,13 +146,37 @@ export default function Navigation() {
         </div>
 
         {mobileMenuOpen && (
-          <div className="flex flex-col border-t border-border px-2 py-2 md:hidden">
+          <div className="flex flex-col gap-2 border-t border-border px-2 py-2 md:hidden">
             {visibleNav.map(navLink)}
+            <RoundStatus className="mx-3 self-start sm:hidden" />
           </div>
         )}
       </nav>
 
       {showAuthModal && <AuthOverlay onClose={() => setShowAuthModal(false)} />}
     </>
+  )
+}
+
+function OnlineCount() {
+  const { traders, status } = useOnlineTraders()
+  const count = traders.length
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            data-testid="online-count"
+            tabIndex={0}
+            className="inline-flex h-6 items-center gap-1.5 rounded-md px-1.5 font-mono text-xs text-muted-foreground"
+          >
+            <Users className="h-3.5 w-3.5" aria-hidden />
+            <span className="tabular-nums text-foreground">{status === 'connecting' ? '–' : count}</span>
+            <span className="sr-only">online</span>
+          </span>
+        }
+      />
+      <TooltipContent>{count === 1 ? '1 trader online' : `${count} traders online`}</TooltipContent>
+    </Tooltip>
   )
 }
