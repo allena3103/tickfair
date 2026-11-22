@@ -23,7 +23,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | **merged** | builder ✓, director ✓ (264 unit, 27 e2e ×2, build) | 3 (R1 PASS+2 minor; R2 PASS+minors; R3 FAIL rejected by the director after a source check: rounding already correct) | ✓ | e2e flaked once in ~8 runs; cause not yet identified. |
 | review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
-| evaluator | final | run 5: PASS (18/18), 1 cosmetic in the loop; run 4: FAIL (presence); run 3: PASS; run 2: PASS; run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
+| evaluator | final | **PASS**: run 5 full 18/18, run 6 targeted recheck clean, no open bugs; run 4: FAIL (presence); run 3: PASS; run 2: PASS; run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
 
 ## Log
 
@@ -57,3 +57,10 @@ The director updates this file as each feature moves through the loop. Newest no
 - Evaluator run 4: every run-3 fix passed its retest (stale reject, plural, cents, zero subscribe churn, newest tape row). New major bug: late joiners see other traders as 'on floor', because the PresenceRoom drops peer state on hibernation. Sent to ui-shell (re-send the ticker on peer join and on a heartbeat).
 - Presence fix merged (the ticker is re-sent when a peer joins and on a 15s heartbeat). Review PASS. Full suite green. Next: evaluator run 5.
 - Evaluator run 5 (fresh): **18/18 PASS**. The late-joiner presence fix passed its retest, and all earlier fixes hold. One cosmetic item ('1 traders' in the leaderboard header) went back to ui-shell.
+- Plural fix merged (review PASS). Full suite: 286 unit, 35 e2e, build OK. Evaluator run 6 (targeted: count labels plus regression checks of criteria 3, 5, 7, 10, and 12, including the late-joiner check): PASS, no bugs. Report committed as `reports/evaluator.md`.
+
+## Final state
+
+- `agent/exchange` holds every builder's work, merged one at a time with the full suite green after each merge. Nothing is merged to `main`, and nothing is deployed.
+- Known limitations (not fixed, by decision): (1) the SDK's per-user presence drops a trader when they close one of two tabs; (2) the header break countdown assumes the contract's 2-minute break, so it is wrong only under the dev-only round-length override; (3) a trader can verify the tie-break from the published seed but can't recompute the seed itself, because it hashes private order ids; (4) in an all-way tie the round winner is chosen by userId order; (5) news headlines are not generated on dev/test servers unless `NEWS_LLM_IN_DEV=true` (user decision). The one approved real call was verified separately.
+- Not built: the per-print fairness audit drawer (marked nice-to-have in PLAN §8).
