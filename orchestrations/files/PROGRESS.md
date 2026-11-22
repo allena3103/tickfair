@@ -23,7 +23,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | **merged** | builder ✓, director ✓ (264 unit, 27 e2e ×2, build) | 3 (R1 PASS+2 minor; R2 PASS+minors; R3 FAIL rejected by the director after a source check: rounding already correct) | ✓ | e2e flaked once in ~8 runs; cause not yet identified. |
 | review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
-| evaluator | final | run 3: PASS (18/18), 3 minors + 1 perf issue in the loop; run 2: PASS; run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
+| evaluator | final | run 4: FAIL (17/18, presence for late joiners), in the loop; run 3: PASS; run 2: PASS; run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
 
 ## Log
 
@@ -54,3 +54,4 @@ The director updates this file as each feature moves through the loop. Newest no
 - Evaluator run 2 (fresh): **18/18 PASS**. One minor bug (E2-1: a stale 'already filled' cancel message stays on screen) went back to ui-trading. The evaluator will run again after the fix.
 - E2-1 fixed, reviewed, and merged. Evaluator run 3 (fresh): **18/18 PASS**, including the cancel-vs-fill race retest. Minor items went back to the builders: stale ticket reject, '1 traders' plural, whole-dollar overlay P&L, and tape queries re-subscribing about 1,300 times in 12 minutes. Design notes for the writeup: a trader can verify the tie-break from the published seed but can't recompute the seed itself (it hashes private order ids); an all-way tie names the winner by userId order.
 - Evaluator run 3 items (stale reject, plural, overlay cents, re-subscribe storm) fixed by ui-trading and ui-shell. Each took up to 3 review rounds, with all FAILs on test strength; final reviews PASS. Merged. Full suite: 280 unit, 34 e2e (twice), build OK. Next: evaluator run 4 to confirm.
+- Evaluator run 4: every run-3 fix passed its retest (stale reject, plural, cents, zero subscribe churn, newest tape row). New major bug: late joiners see other traders as 'on floor', because the PresenceRoom drops peer state on hibernation. Sent to ui-shell (re-send the ticker on peer join and on a heartbeat).
