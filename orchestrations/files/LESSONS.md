@@ -26,3 +26,12 @@ Every builder reads this before starting. The director adds entries as they come
 14. **Account meaning:** `cashCents` is free cash, and `reservedCents` is cash held for open buys. `holdings.qty` is total shares, and `reservedQty` is the part held for open sells.
 15. **Band edges are exact integers that round inward** (last 1005 → top 1105). Before reserving a bot intent, clamp its limit with engine-core's band function (`priceBand`/`marketLimit`). If a bot intent is rejected, log it; it must never halt the batch.
 16. **`rate_limited` (the per-batch order cap) is not in engine-core.** exchange-runtime enforces it.
+
+## From ui-shell (wave 1)
+
+17. **One presence socket.** `(app)/_layout.tsx` already holds the single `floor:${APP_ID}` presence connection. Set the viewer's ticker with `useFloorPresence().setTicker(t)` from `@/components/shell/FloorPresence`. Never call `usePresenceRoom` again.
+18. **Leaderboard is a pure component:** `<Leaderboard portfolios={records.map(r => r.data)} last={liveLast} currentUserId={userId} status={...} />`. Feed it the live `last` from the exchange stream.
+19. **Prices and P&L** go through `<Delta>` and `src/theme/format.ts`, so arrow, sign, and number always agree and stay readable without color. Up/down colors are the Tailwind tokens `text-up`, `text-down`, `bg-up-muted`, `bg-down-muted`.
+20. **Current round:** `useCurrentRound` picks the newest `rounds` record. Feeds use the `'__no_round__'` sentinel when no round resolves, so they never query every round.
+21. **Flaky tests:** `locator.isVisible({ timeout })` ignores its timeout. Use `waitFor` or web-first `expect(...).toBeVisible()`.
+22. **No paid LLM calls on dev/test servers** unless `NEWS_LLM_IN_DEV=true`. Tests never set it.
