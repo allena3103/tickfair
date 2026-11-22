@@ -8,14 +8,14 @@ Branch `agent/exchange-runtime`, rebased onto `agent/exchange` at `ef0403b` (ui-
 
 ## 1. Built and verified
 
-All commands run on the final commit, port 5186.
+All commands run on the final commit, port 5186. Review round 1 fixes are in §8.
 
 | Item | Proof | Result |
 |---|---|---|
 | Typecheck | `npx tsc --noEmit` | exit 0, no output |
 | Lint | `npm run lint` (eslint .) | exit 0, no output |
-| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 226 passed (226)` |
-| E2E | `npx deepspace test run --port 5186` (smoke + api) | exit 0: `21 passed (57.0s)`, `1 skipped` (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
+| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 228 passed (228)` |
+| E2E (3 runs) | `npx deepspace test run --port 5186` (smoke + api), three times on the final code | each exit 0: `21 passed (50.7s)`, `21 passed (44.7s)`, `21 passed (45.0s)`; `1 skipped` each (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
 | Build | `npx vite build` | exit 0, `✓ built`; the worker bundle does not contain `node:sqlite` |
 | SQLite tables `meta, accounts, holdings, book, batches, fundamentals, bots` (+ `shocks` for newsId dedupe, `mirror` outbox) created on construct | `exchange/sql.ts`; every test constructs a fresh room | pass |
 | Intake: lazy enroll with `START_CASH_CENTS`, `rate_limited` at `MAX_ORDERS_PER_BATCH` per trader per batch, `checkAndReserve`, server `orderId` (`o-<uuid>`), current `batchId`, `PlaceOrderData` | core.test `intake` (6 cases + 8 reject codes); api.spec `typed rejections…`, `a valid order returns orderId and batchId…` | pass |
@@ -23,7 +23,7 @@ All commands run on the final commit, port 5186.
 | Market orders stored with the band-edge limit | core.test `stores a market order with the band-edge limit`; manual run: market buy stored `limitCents=13225` (= hi of band around 12023) | pass |
 | Batch loop in one `transactionSync`, broadcast after commit, then mirror | core.test `batch` + room.test (ex.batch ids 2,3,4 after three alarms; fills/orders written with `X-User-Id` = trader; portfolios/tape/rounds as owner) | pass |
 | Bots: cancel old quotes, re-quote through the same reserve path, ids `bot:mm` / `bot:noise`, intents clamped with `priceBand`, rejected intent logged and skipped, MM inventory updated from its fills, bots seeded with cash + shares each round | core.test `updates the maker inventory…` (inventory == holdings − seed; every bot order inside the band), `opens a live round…` (bots hold shares, 6 MM quotes in batch 1) | pass |
-| Mirror: idempotent upserts by deterministic recordId, coalesced per record, ≤40/tick, carry-over, version-safe delete, retry then drop after 5 with a log line; bots get no `orders`/`fills` mirrors | core.test `mirror flush` (2 tests), `a retried mirror … cannot duplicate a fill`; room.test identity checks | pass |
+| Mirror: idempotent upserts by deterministic recordId, coalesced per record, ≤40/tick, carry-over, version-safe delete, failed rows never dropped (per-row backoff 1 s doubling to 64 s, warning per failure); bots get no `orders`/`fills` mirrors | core.test `mirror flush` (3 tests), `schema upgrade`; room.test identity checks and RecordRoom-outage test | pass |
 | Shock: `applyShock` from the next batch, `round_closed` in the break, `bad_request` (HTTP 400) on malformed input, same `newsId` applied once; size never logged or sent | core.test `shock` (2 tests); room.test: real `ExchangeRoom.fetch('POST /exchange/shock', {CURA, deltaBps: 800, rampBatches: 15})` → `{ok:true}`; wire messages contain no `valueCents/targetCents/deltaBps/rampLeft` | pass — see numbers below |
 | Rounds: start (new roundId, reset fundamentals + bots, seed bots, `rounds` live record + 3 `tickers` written immediately); end (cancel all, release, mark to market, `rounds` done with human-only standings and a human or empty `winnerId`, `ex.phase`); break → next round | core.test `round end` (2 tests); room.test rollover; manual rollover watch below | pass |
 | First start and idle resume: start on first order/socket/shock; stale round closed, then next started; batch clock restarts instead of replaying | core.test `idle pause and resume` (4 tests); real dev server: the leftover round from an earlier test run was closed on wake (`[exchange] round r-mwr7cdtw-b2d812 done … 2 traders`) and a new one opened | pass |
@@ -84,7 +84,7 @@ Rollover in the real dev server (overrides `EXCHANGE_ROUND_LIVE_MS=60000`, `EXCH
 
 - **Production subrequest budget.** The mirror sends ≤40 RecordRoom writes per alarm (SPIKE S3). Each alarm is its own invocation, but the deployed cap is still unmeasured. If it is low, change `MIRROR_WRITES_PER_TICK` in `exchange/config.ts`; the outbox already carries the rest over.
 - **The shock from the real news pipeline in dev.** By the user's decision, dev servers make no paid LLM call, so news never reaches `/exchange/shock` locally. The shock endpoint was verified through the real `ExchangeRoom.fetch` in room.test (above), not through a running dev server: a local-only harness route would need `worker.ts`, which I don't own, and the edit was refused.
-- **Round-boundary flake risk in e2e.** The signed-in exchange specs expect a live round. If a `test run` lands inside a 2-minute break, `placeOrder` returns `round_closed` and those specs fail. I hit this once, only while my local 60 s/15 s overrides were still in `.dev.vars`; with the default 15 min/2 min it should be rare, but it is possible.
+- **Mirror load during a long RecordRoom outage.** Rows are retried forever with per-row backoff, capped at 40 writes per tick. Because the cap spreads rows over many ticks, their retry times stagger, so during an outage with a big queue the room still wakes about once a second (each wake sends at most 40 writes) until RecordRoom recovers, even while idle. Measured in room.test only, not against a real outage.
 - **Alarm timing under load in production** (only the local cadence was observed: 128 `ex.batch` messages in 132 s in the manual run).
 
 ## 3. Not built or cut
@@ -94,7 +94,7 @@ Rollover in the real dev server (overrides `EXCHANGE_ROUND_LIVE_MS=60000`, `EXCH
 
 ## 4. Files changed
 
-All within my ownership (`src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `src/actions/orders.test.ts`, `tests/api.spec.ts`), plus this report:
+All within my ownership (`src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `src/actions/orders.test.ts` (ownership approved in review round 1), `tests/api.spec.ts`), plus this report:
 
 - `src/server/exchange-room.ts` (rewritten from the shell)
 - `src/server/exchange/{config,core,invariants,mirror,sql,store}.ts` (new)
@@ -109,7 +109,7 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
 
 ## 5. Requests for the director
 
-1. **Contract (optional):** `ExchangeShockResponse` only allows `code: 'round_closed'`. A malformed shock body now gets HTTP 400 `{ ok: false, code: 'bad_request' }`. Only our own news code calls it, so this never happens in practice; add `'bad_request'` to the type if you want it typed. `publish.ts` would log it as `published_no_shock (bad_request)`.
+1. **Contract (optional):** `ExchangeShockResponse` only allows `code: 'round_closed'`. A malformed shock body now gets HTTP 400 `{ ok: false, code: 'bad_request' }`. Only our own news code calls it, so this never happens in practice; add `'bad_request'` to the type if you want it typed. `publish.ts` would log it as `published_no_shock (bad_request)`. **Approved; the director adds it to contracts.ts at merge. I did not edit contracts.ts.**
 2. **Round-duration overrides in local runs:** `deepspace dev start` rewrites `.dev.vars` on every start, and with a `.dev.vars` present the Cloudflare plugin ignores process env (`CLOUDFLARE_INCLUDE_PROCESS_ENV` has no effect). The working method: start the server, then append `EXCHANGE_ROUND_LIVE_MS=…` / `EXCHANGE_ROUND_BREAK_MS=…` to `.dev.vars`; the worker reloads, and the **next** round uses them (the current round keeps its end time). If the evaluator needs this often, a supported way to pass extra local vars would help.
 3. **Local-only shock harness:** if you want the shock exercised on a running dev server, a `ALLOW_DEBUG_ROUTES`-gated, owner-only route in `worker.ts` that forwards to `/exchange/shock` would do it. I did not add one (not my file).
 4. No new dependencies. No registrations needed (`placeOrder`/`cancelOrder` were already registered).
@@ -127,4 +127,28 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
 
 ## 7. Branch and commit
 
-`agent/exchange-runtime`. Code at `18a8152`; this report is added in the commit right after it (the branch head). Rebased on `ef0403b`; `agent/exchange` has since gained `b19953a` (PROGRESS only), so no conflicts are expected.
+`agent/exchange-runtime`. Review round 1 code at `88fc4c1` (first-pass code was `18a8152`); this report is updated in the commit right after it (the branch head). Rebased on `ef0403b`; `agent/exchange` has since gained `b19953a` (PROGRESS only), so no conflicts are expected.
+
+## 8. Review round 1 fixes
+
+- **F1 (e2e depended on the round phase).**
+  - `exchangeSnapshot` now returns `phaseEndsAt`.
+  - New `liveSnapshot(minLeftMs)`: if the round is in its break, or has less than `minLeftMs` left, it waits until `phaseEndsAt + 1 s` and snapshots again. It waits through at most one round end and one full break.
+  - Each signed-in exchange test runs its scenario through `inOneRound`. A scenario reports a rollover if any order gets `round_closed`, if a re-snapshot shows another `roundId` or the break, or if the pair's batch did not clear while its round was still live (`clearedInRound`). It then runs once more in the next round.
+  - Test timeouts are `ROUND_BREAK_MS + 2 min` (plus 2 min for the two-user tests).
+  - Run 1 of the three hit the break (the server log shows `[news] skipped round_closed`) and still passed.
+- **F2 (mirror dropped rows after 5 failures).**
+  - Rows are never dropped. A failed row is retried after `BATCH_MS * 2^min(attempts, 6)` (1, 2, 4 … 64 s), with a `console.warn` per failure. The cap stays at 40 writes per tick.
+  - A rewrite of a row that is backing off keeps its backoff, so an outage is not hammered.
+  - The alarm stays armed while rows are queued, even when the room is idle, and is set to the earliest due row.
+  - Schema: the `mirror` table has a new `nextAt` column. `createTables` adds it to a table made before this change and keeps the queued rows (core.test `schema upgrade`).
+  - Tests:
+    - core.test: a writer fails 8 times per row; the gaps are exactly 1, 2, 4, 8, 16, 32, 64, 64 s, and nothing is sent before a row is due. Then it succeeds, and the round's `done` record and the trader's fill are both delivered (the fill written as the trader). The queue ends empty.
+    - room.test: RecordRoom returns 503 for 7 minutes, through round end, the break, and the idle pause. Nothing is written in that time, warnings reach attempt 6 or more, and the alarm stays armed while idle. After recovery, alarms deliver the `done` round, the order, and the fill. The `mirror` table ends empty and the alarm stops.
+- **F3 (retry test never retried).** Replaced it with a real retry. One batch runs, then a writer rejects the fill once and accepts it on the next flush. The writer saw the same `${orderId}:${batchId}` recordId both times, and the queue is empty afterwards.
+- **F4:** no action needed. **Contract:** `bad_request` was approved; contracts.ts was not touched.
+- **Checks on the final code:**
+  - `npx tsc --noEmit`: exit 0.
+  - `npm run lint`: exit 0.
+  - Unit (`test run unit --port 5186`): 228 of 228 passed.
+  - E2E (`test run --port 5186`) ×3: 21 passed and 1 skipped each time, all exit 0.
