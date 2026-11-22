@@ -16,10 +16,10 @@ The director updates this file as each feature moves through the loop. Newest no
 | Worker | Wave | State | Check runs | Review rounds | Merged | Notes |
 |--------|------|-------|------------|---------------|--------|-------|
 | foundation | 0 | **merged** | builder ✓, director ✓ (tsc, lint, 20 unit, 11 e2e, build) | 2 (R1 FAIL: unapproved codes, resolved by a director spec update; R2 PASS) | ✓ | App registered `app_01M80AVDTA8NPYNJWXARJYZRPG`. Spike S1–S3 pass locally; prod subrequest cap still unknown. |
-| engine-core | 1 | in review (R2, test speed-up) | – | – | – | |
+| engine-core | 1 | **merged** | – | – | – | |
 | market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
-| news | 1 | in review (R2) | – | – | – | |
-| ui-shell | 1 | in review (R1) | – | – | – | |
+| news | 1 | **merged** | – | – | – | |
+| ui-shell | 1 | in review (R2) | – | – | – | |
 | exchange-runtime | 2 | not started | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
@@ -34,3 +34,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - Security fix from news's finding: the scaffold's browser integration proxy forwarded any unlisted integration billed to the owner, so any signed-in member could spend the owner's credits through Claude. Now every owner-billed integration is refused for browsers (403), and cron trigger, pause, and resume are admin-only. Commit `86ca7aa`.
 - engine-core R1 PASS and merged. A follow-up made its property test about 10x faster, because slow tests were failing under the machine load of 4 parallel builders. That follow-up is in review R2. news R1 FAIL (a race in the concurrent breakingNews rate limit; a sentence counter that missed closing quotes), fixed and in R2.
 - The user chose to run wave 2 **sequentially** (session usage meter at 70%): exchange-runtime first, then ui-trading.
+- engine-core follow-up merged (R2 PASS + 2 minors fixed, R3 PASS). Full suite green.
+- news merged after 3 rounds (R1 FAIL, R2 PASS + 3 minors fixed, R3 PASS). The director registered `breakingNews`. Full suite: 138 unit, 15 e2e, build OK. Known minors left from R3: (a) cron's integration call doesn't unwrap the `{success, code}` envelope, so a credits error gets logged as "unrecognized shape" (it still fails closed; to be confirmed during the director's real-call check); (b) a manual admin cron trigger in the same minute as the scheduled run can publish two events; (c) the breakingNews 10s limit is per isolate (owner-only, so it can only spend the owner's own credits).
