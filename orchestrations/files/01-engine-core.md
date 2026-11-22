@@ -38,6 +38,8 @@ All functions are pure and synchronous, and return new objects.
   - earlier `batchId` first;
   - within the same batch, pro-rata by `remaining`, with whole shares assigned by largest remainder;
   - leftover-share ties go to the lowest `sha256(seed + orderId)`.
+  - *Director-approved edge case:* the tie-breaks can pick a price p where the orders priced strictly better than p, on the side with excess, already exceed the other side. For example, buys of 6 and 4 at 105 against a sell of 5 at 100, with last = 100, gives p = 100. Price priority still holds: that better level is rationed by the same rules (earlier batch, then pro-rata, then the seed tiebreak), and orders at p get nothing.
+- **Account meaning (director-approved):** `cashCents` is free cash; money held for open buys sits in `reservedCents`. `holdings.qty` is all shares held; `reservedQty` is the part held for open sells. The band is inclusive with exact integer edges that round inward; `marketLimit` and the `outside_band` check share one band function.
 - **Validation in `checkAndReserve`:**
   - integer `qty` in 1..100_000;
   - integer positive `limitCents`;

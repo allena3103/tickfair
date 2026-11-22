@@ -20,3 +20,9 @@ Every builder reads this before starting. The director adds entries as they come
 11. **Bots need inventory.** Under long-only rules, the market maker and noise trader can't sell shares they don't hold. exchange-runtime must seed the bot accounts (`bot:mm`, `bot:noise`) with cash and shares at each round start. Bot accounts are included in the conservation invariant and excluded from the leaderboard.
 12. **The runtime owns `BotState.inventory`.** market-sim passes it through unchanged. exchange-runtime must update it from the market maker's fills each batch.
 13. **The price band is inclusive.** An order exactly at last × (1 ± 10%) is inside the band. The noise trader places orders on the edge.
+
+## From engine-core (wave 1)
+
+14. **Account meaning:** `cashCents` is free cash, and `reservedCents` is cash held for open buys. `holdings.qty` is total shares, and `reservedQty` is the part held for open sells.
+15. **Band edges are exact integers that round inward** (last 1005 → top 1105). Before reserving a bot intent, clamp its limit with engine-core's band function (`priceBand`/`marketLimit`). If a bot intent is rejected, log it; it must never halt the batch.
+16. **`rate_limited` (the per-batch order cap) is not in engine-core.** exchange-runtime enforces it.
