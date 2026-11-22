@@ -15,6 +15,7 @@ import {
   ladderRows,
   linePath,
   parsePriceInput,
+  plural,
   parseQtyInput,
   portfolioView,
   readHoldings,
@@ -270,5 +271,13 @@ describe('finishedRound (Q1)', () => {
     expect(finishedRound([{ recordId: 'r-2', data: { ...done, status: 'live' } }], 'r-2')).toBeNull()
     expect(finishedRound([], 'r-2')).toBeNull()
     expect(finishedRound([{ recordId: 'r-1', data: done }], 'r-2')).toBeNull()
+  })
+})
+
+describe('plural (BUG-5a)', () => {
+  it('says 1 batch, 0 or many batches', () => {
+    expect(plural(1, 'batch', 'batches')).toBe('1 batch')
+    expect(plural(0, 'batch', 'batches')).toBe('0 batches')
+    expect(plural(1200, 'batch', 'batches')).toBe('1,200 batches')
   })
 })

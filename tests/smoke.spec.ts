@@ -213,6 +213,42 @@ test.describe('trade terminal (signed in)', () => {
     expect(errors).toEqual([])
   })
 
+  test('an old ticket error clears as soon as you edit the ticket (BUG-3)', async ({ users }) => {
+    test.setTimeout(240_000)
+    const [a] = await users(1)
+    const page = a.page
+    await page.goto('/trade')
+    const terminal = page.getByTestId('trade-terminal')
+    await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 20_000 })
+    // Sending needs a live round; wait out a results break rather than assume the phase (LESSONS 25).
+    await expect(terminal).toHaveAttribute('data-phase', 'live', { timeout: 200_000 })
+
+    // 200,000 shares passes the ticket's own checks; the server rejects it as invalid_qty.
+    const qty = page.getByTestId('ticket-qty')
+    await qty.fill('200000')
+    await page.getByTestId('ticket-submit').click()
+    const error = page.getByTestId('ticket-error')
+    await expect(error).toHaveText('Enter a whole number of shares, up to 100,000.', { timeout: 15_000 })
+
+    // Each kind of edit clears it: quantity, price, side, and order type.
+    const edits = [
+      () => qty.fill('5'),
+      () => page.getByTestId('ticket-price').fill('1.00'),
+      () => page.getByTestId('ticket-sell').click(),
+      () => page.getByTestId('ticket-market').click(),
+    ]
+    for (const edit of edits) {
+      await page.getByTestId('ticket-buy').click()
+      await page.getByTestId('ticket-limit').click()
+      await qty.fill('200000')
+      await page.getByTestId('ticket-price').fill((await page.getByTestId('chart-last').textContent())!.replace(/,/g, ''))
+      await page.getByTestId('ticket-submit').click()
+      await expect(error).toBeVisible({ timeout: 15_000 })
+      await edit()
+      await expect(error).toHaveCount(0)
+    }
+  })
+
   test('the fairness note links to the batch auction explanation', async ({ users }) => {
     const [a] = await users(1)
     const page = a.page

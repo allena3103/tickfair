@@ -34,6 +34,11 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
   const [qtyText, setQtyText] = useState('10')
   const [priceText, setPriceText] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  /** Any edit makes the last send's result stale, so it is cleared (never while sending). */
+  const edited = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v)
+    setStatus((s) => (s.kind === 'sending' ? s : { kind: 'idle' }))
+  }
 
   // A new ticker starts from its own last price, not the previous ticker's.
   const [priceFor, setPriceFor] = useState<Ticker | null>(null)
@@ -93,7 +98,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
         <Segmented
           label="Side"
           value={side}
-          onChange={(v) => setSide(v as Side)}
+          onChange={(v) => edited(setSide)(v as Side)}
           options={[
             { value: 'buy', label: 'Buy', active: 'bg-up-muted text-up' },
             { value: 'sell', label: 'Sell', active: 'bg-down-muted text-down' },
@@ -102,7 +107,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
         <Segmented
           label="Order type"
           value={type}
-          onChange={(v) => setType(v as OrderType)}
+          onChange={(v) => edited(setType)(v as OrderType)}
           options={[
             { value: 'limit', label: 'Limit', active: 'bg-accent text-foreground' },
             { value: 'market', label: 'Market', active: 'bg-accent text-foreground' },
@@ -117,7 +122,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
               inputMode="numeric"
               autoComplete="off"
               value={qtyText}
-              onChange={(e) => setQtyText(e.target.value)}
+              onChange={(e) => edited(setQtyText)(e.target.value)}
               aria-invalid={qty === null}
               className={inputClass}
             />
@@ -130,7 +135,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
                 inputMode="decimal"
                 autoComplete="off"
                 value={priceText}
-                onChange={(e) => setPriceText(e.target.value)}
+                onChange={(e) => edited(setPriceText)(e.target.value)}
                 aria-invalid={limitCents === null}
                 className={inputClass}
               />
