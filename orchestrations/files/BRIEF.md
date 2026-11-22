@@ -27,6 +27,14 @@ Build a multiplayer simulated stock exchange on DeepSpace. Players sign in, get 
 - Commit often on your own branch. **Never** merge, push, `deepspace deploy`, `deepspace push`, write secrets, or touch production.
 - Never kill a dev server you didn't start.
 - If you hit something that needs the user's decision (spending money, a failed load-bearing assumption, a product choice), stop and report it. Don't guess.
+- **Before you report done**, run all of these yourself on your final commit and paste the exact commands and results in your report:
+  - typecheck: `npx tsc --noEmit` (or the scaffold's `typecheck` script);
+  - lint: the scaffold's `lint` script, if one exists (say so if none exists);
+  - unit tests: `npx deepspace test run unit --port <your port>`;
+  - your e2e specs: `npx deepspace test run --port <your port>` (plus `e2e` if your task owns `collab.spec.ts`).
+  The director reruns the same checks. A report that says "done" without this evidence is sent back.
+- Your work then goes to an independent reviewer. Findings come back to you as a numbered list. Fix them, rerun every check, and report again with the same evidence.
+- **Test accounts:** use only the `users(n)` fixture from `deepspace/testing`. Three accounts exist ("Trader A", "Trader B", "Trader C"). Never print, copy, or commit their passwords, the contents of `~/.deepspace/test-accounts.json`, session tokens, or JWTs. Don't create or delete accounts.
 
 ## DeepSpace rules (from the docs; violating these is a defect)
 
