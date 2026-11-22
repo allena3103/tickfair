@@ -71,3 +71,71 @@ No contract changes or dependencies are needed. Notes for exchange-runtime and n
 ## 7. Branch and commit
 
 Branch `agent/market-sim`. Code commit `515b15b`. The report commit is the branch head (see `git log -1`).
+
+---
+
+# Round 2: slow-test fix (director request)
+
+Rebased `agent/market-sim` onto `agent/exchange` (head `9cb2f8d`, which already contained my merged code and engine-core). No conflicts. Fix commit: `0b797b4`. Only `src/engine/market/market.test.ts` changed. No source changes.
+
+## Cause
+
+The work being tested is trivial: 10,000 news draws take microseconds. Almost all of the time went to **per-iteration `expect()` calls** inside hot loops. That was about 90k matcher calls in the news test, about 70k in the market-maker test, about 40k in the noise test, and 50k in the rng range test. Each matcher call builds an assertion object, and that cost grows under load.
+
+## Fix
+
+- In every hot loop, plain boolean checks collect violations into a `bad` array, which is asserted once with `expect(bad).toEqual([])`. A failure still names the offending batch, ticker, and values. The same change was made to 3 smaller loops (the identical-sequence, $1-floor, and integer-cents tests).
+- **Iteration counts are unchanged** (10,000 draws, 2,000 MM batches, 5,000 noise batches, 10,000 rng draws), so every property is as strong as before. No per-test timeouts were needed.
+- Added a non-vacuity guard to the MM test: more than 5,000 two-sided quotes must be seen.
+- Mutation check, run and then reverted: noise buy limit set to `band.hi + 1`, and CURA ask forced equal to bid. Result: 3 tests failed (MM bounds, MM skew, noise band), as expected. `bots.ts` was restored, and `git status` showed only the test file changed.
+
+## Per-test timings, file run alone (vitest --reporter=verbose)
+
+| Test | Before | After |
+|------|--------|-------|
+| int() covers both inclusive ends | 934ms | <10ms |
+| 10,000 news draws | 2287ms | 15ms |
+| MM bid < ask, in band | 2024ms | 19ms |
+| noise within band | 828ms | 12ms |
+| whole file (tests) | 6.19s | 0.23s |
+
+## Checks on `0b797b4`
+
+```
+$ npx tsc --noEmit          → exit 0
+$ npm run lint              → exit 0
+
+$ npx deepspace test run unit --port 5183   (3 runs in a row; the CLI prints totals only)
+run 1: Test Files 8 passed (8), Tests 85 passed (85), Duration 17.80s, exit 0
+run 2: Test Files 8 passed (8), Tests 85 passed (85), Duration 18.75s, exit 0
+run 3: Test Files 8 passed (8), Tests 85 passed (85), Duration 17.07s, exit 0
+```
+
+The CLI doesn't print per-file durations, so I ran the same full suite 3 more times with `npx vitest run --reporter=json` (the same vitest config, all 8 files in parallel) and read each file's duration:
+
+| Run | market.test.ts | (for comparison) engine/core/property.test.ts |
+|-----|----------------|-----------------------------------------------|
+| 1 | 0.15s | 18.65s |
+| 2 | 0.16s | 18.61s |
+| 3 | 0.21s | 18.58s |
+
+## Note for the director
+
+- `src/engine/core/property.test.ts` (engine-core) now takes about 18.6s under the full suite. It sets the total unit duration and is the main source of the CPU load that pushed my file past 5s. I didn't touch it, because it isn't mine. If it uses per-iteration `expect()` in its property loops, the same fix probably applies.
+- Lesson for later workers: in property-style loops, collect violations and assert once. Don't call `expect()` per iteration.
+
+---
+
+# Round 3: reviewer finding (ramp bounds checked against the code's own constant)
+
+- `drawNewsEvent` loop: the ramp check now uses the spec literals `rampBatches >= 10 && <= 20` again, instead of `RAMP_BATCHES.lo/hi`.
+- Same weakness, also fixed: the size bounds in that loop use `MINOR_BPS`/`MAJOR_BPS`. Before the loop, the test now asserts once that `MINOR_BPS` is `{ lo: 100, hi: 200 }` and `MAJOR_BPS` is `{ lo: 400, hi: 800 }`. A change to the constants now fails the test instead of silently widening what it accepts.
+- Only `src/engine/market/market.test.ts` changed.
+
+```
+$ npx tsc --noEmit                          → exit 0
+$ npm run lint                              → exit 0
+$ npx deepspace test run unit --port 5183   → Test Files 8 passed (8), Tests 85 passed (85), Duration 36.50s, exit 0
+```
+
+The 36.5s total (17–19s in round 2) reflects machine load from parallel workers. The market file's work is unchanged apart from two cheap asserts.
