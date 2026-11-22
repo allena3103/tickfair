@@ -25,6 +25,7 @@ import {
 import { useAuthStatus, usePresenceRoom, type PresencePeerClient } from 'deepspace'
 import { APP_ID } from '@/constants'
 import type { Ticker } from '@/shared/contracts'
+import { FLOOR_RESEND_MS, joinedPeerIds } from './floorResend'
 
 export const FLOOR_SCOPE = `floor:${APP_ID}`
 
@@ -102,6 +103,24 @@ function FloorConnector({
   // A reconnect re-joins with empty state, so publish the ticker again.
   useEffect(() => {
     if (connected && myTicker.current) updateState({ ticker: myTicker.current })
+  }, [connected, updateState, myTicker])
+
+  // The room forgets peer state when it hibernates, so a late joiner never
+  // sees an earlier updateState. Re-send when someone new appears...
+  const knownPeers = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const joined = joinedPeerIds(knownPeers.current, peers)
+    knownPeers.current = new Set(peers.map((p) => p.userId))
+    if (connected && joined.length > 0 && myTicker.current) updateState({ ticker: myTicker.current })
+  }, [peers, connected, updateState, myTicker])
+
+  // ...and on a slow heartbeat as a backstop.
+  useEffect(() => {
+    if (!connected) return
+    const id = setInterval(() => {
+      if (myTicker.current) updateState({ ticker: myTicker.current })
+    }, FLOOR_RESEND_MS)
+    return () => clearInterval(id)
   }, [connected, updateState, myTicker])
 
   useEffect(() => {

@@ -2,6 +2,40 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: evaluator run 4 (BUG-1, late joiner sees "on floor")
+
+I rebased onto `agent/exchange` `d765c28`; it was a fast-forward. The fix commit is `25036d2`. BUG-2 (closing one of two tabs drops the trader) is the known SDK per-user presence limitation and was left alone, as instructed.
+
+**Cause:** the floor PresenceRoom drops peer state when it hibernates. Each client published `{ticker}` only when it changed or after a reconnect, so a late joiner (C) never received A's and B's earlier `updateState` and showed them as "on floor".
+
+**Fix in `src/components/shell/FloorPresence.tsx`, with the trigger logic in the new `floorResend.ts`:**
+- **New peer:** `joinedPeerIds(prev, peers)` returns the user ids that weren't in the previous peer snapshot. When it's non-empty and you're connected with a ticker set, the connector re-sends `{ticker}`. Because the snapshot is replaced each time, a peer who leaves and comes back counts as new.
+- **No flooding:** re-renders and other peers' state updates don't change membership, so they send nothing.
+- **Heartbeat:** a 15 s `setInterval` (`FLOOR_RESEND_MS`) re-sends while connected with a ticker set, and is cleared on disconnect or unmount.
+- **Unchanged:** the existing reconnect re-send.
+
+**Tests:**
+- Unit (`src/components/shell/floorResend.test.ts`, 5 cases):
+  - A new peer triggers a re-send.
+  - The same peers, in any order or empty, don't.
+  - A leave doesn't, and a rejoin does.
+  - Two connections from the same user count once.
+  - The heartbeat is between 15 and 20 s.
+- e2e (`smoke.spec.ts` › "presence: late joiner", `users(3)`):
+  - A stays on ORBT and B picks CURA; each sees the other's ticker.
+  - The test waits 65 s, then C opens `/trade`.
+  - C must see A as `ORBT` and B as `CURA` within 8 s of both appearing on the floor. That's shorter than the 15 s heartbeat, so it exercises the join trigger.
+  - Against the old `FloorPresence.tsx` the test fails with `Expected: "ORBT"`, `Received: "on floor"`, which reproduces the bug. With the fix it passes.
+
+**Checks on `25036d2`:**
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- Unit: 18 files, 285 tests passed.
+- `npx deepspace test run e2e --port 5185`, two runs: both exit 0, with 35 passed and 1 skipped (ui-trading's opt-in screenshot test).
+
+**Files touched:**
+- **Mine:** `src/components/shell/{FloorPresence.tsx,floorResend.ts (new),floorResend.test.ts (new)}`.
+- **`tests/smoke.spec.ts`:** added the "presence: late joiner" describe only.
+
 ## Update: review of evaluator run 3 fixes (FAIL, F1-F4 fixed)
 
 The fix commit is `7243698`.
@@ -231,4 +265,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `e6cc3e4`. The final code commit is `7243698` (reviewer F1-F4), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `d765c28`. The final code commit is `25036d2` (run-4 BUG-1), and the report commit is the next one, on top of it.

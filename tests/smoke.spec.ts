@@ -206,6 +206,54 @@ test.describe('presence', () => {
 })
 
 /**
+ * BUG-1 (run 4): the floor's PresenceRoom drops peer state when it
+ * hibernates, so a late joiner never got tickers published earlier. Each
+ * client now re-sends its ticker when a new peer appears (and on a slow
+ * heartbeat). C joins after a 60 s+ quiet spell and must see A's and B's
+ * tickers within a few seconds: sooner than the 15 s heartbeat, so this
+ * exercises the join trigger.
+ */
+test.describe('presence: late joiner', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 3, `Needs 3 usable test accounts, found ${usable}.`)
+  test.setTimeout(240_000)
+
+  test('C opens /trade after a quiet minute and sees A on ORBT and B on CURA', async ({ users }) => {
+    const [a, b, c] = await users(3)
+    await Promise.all([a.page.goto('/trade'), b.page.goto('/trade')])
+    const selfId = async (page: Page) => {
+      const self = page.getByTestId('online-traders').locator('[data-testid="online-trader"][data-self="true"]')
+      await expect(self).toHaveCount(1, { timeout: 30_000 })
+      return (await self.getAttribute('data-user-id')) as string
+    }
+    const [idA, idB] = await Promise.all([selfId(a.page), selfId(b.page)])
+
+    // A stays on ORBT (the default); B moves to CURA. Each sees the other's pick.
+    await b.page.getByTestId('ticker-tab-CURA').click()
+    await expect(b.page.getByTestId('ticker-tab-CURA')).toHaveAttribute('aria-selected', 'true')
+    const rowOf = (page: Page, id: string) =>
+      page.locator(`[data-testid="online-trader"][data-user-id="${id}"] [data-testid="online-trader-status"]`)
+    await expect(rowOf(a.page, idB)).toHaveText('CURA', { timeout: 20_000 })
+    await expect(rowOf(b.page, idA)).toHaveText('ORBT', { timeout: 20_000 })
+
+    // Long enough for the room to hibernate and forget peer state.
+    await a.page.waitForTimeout(65_000)
+
+    await c.page.goto('/trade')
+    await expect(c.page.getByTestId('online-traders')).toBeVisible({ timeout: 30_000 })
+    // Both are listed (on the floor) as soon as C connects; tickers follow within a few seconds.
+    await expect(c.page.locator(`[data-testid="online-trader"][data-user-id="${idA}"][data-on-floor="true"]`)).toHaveCount(1, {
+      timeout: 30_000,
+    })
+    await expect(c.page.locator(`[data-testid="online-trader"][data-user-id="${idB}"][data-on-floor="true"]`)).toHaveCount(1, {
+      timeout: 30_000,
+    })
+    await expect(rowOf(c.page, idA)).toHaveText('ORBT', { timeout: 8_000 })
+    await expect(rowOf(c.page, idB)).toHaveText('CURA', { timeout: 8_000 })
+  })
+})
+
+/**
  * PERF: the SDK re-sends a full core.subscribe for every ordered/limited
  * subscription each time its collection changes. Fingerprint every subscribe
  * frame by its query (collection + where + orderBy + orderDir + limit), so a
