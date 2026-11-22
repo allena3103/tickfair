@@ -61,11 +61,14 @@ export default function TradePage() {
     return { ...out, ...stream.last }
   }, [tickers.records, stream.last])
 
-  // My live orders only (at most MAX_OPEN_ORDERS per trader). Filtering on
-  // status and userId server-side means neither finished orders nor anyone
-  // else's rows can use up the limit.
-  const openQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'open', userId: userId ?? NO_ROUND }, limit: 100 })
-  const partialQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'partial', userId: userId ?? NO_ROUND }, limit: 100 })
+  // Queries on busy collections use `where` only, never orderBy/limit: the SDK
+  // re-sends core.subscribe for an orderBy/limit query on every change in its
+  // collection, while a plain where query is patched in place. Each set below
+  // is bounded by round and trader, and sorted and capped on the client.
+  const me = userId ?? NO_ROUND
+  // My live orders only: at most MAX_OPEN_ORDERS per trader.
+  const openQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'open', userId: me } })
+  const partialQ = useQuery<OrderRecord>('orders', { where: { roundId, status: 'partial', userId: me } })
   const openOrders = useMemo(
     () => liveOrderRows([openQ.records, partialQ.records], userId),
     [openQ.records, partialQ.records, userId],
@@ -73,17 +76,19 @@ export default function TradePage() {
   const orders =
     openQ.status === 'error' ? openQ : partialQ.status === 'error' ? partialQ : openQ.status === 'loading' ? openQ : partialQ
 
-  const fills = useQuery<FillRecord>('fills', { where: { roundId }, orderBy: 'batchId', orderDir: 'desc', limit: 100 })
+  const fills = useQuery<FillRecord>('fills', { where: { roundId, userId: me } })
   const myFills = useMemo(
     () =>
       fills.records
         .filter((r) => r.data.userId === userId)
         .map((r) => ({ ...r.data, id: r.recordId }))
-        .sort((a, b) => b.batchId - a.batchId || a.id.localeCompare(b.id)),
+        .sort((a, b) => b.batchId - a.batchId || a.id.localeCompare(b.id))
+        .slice(0, 100),
     [fills.records, userId],
   )
 
-  const portfolios = useQuery<PortfolioRecord>('portfolios', { where: { roundId }, limit: 500 })
+  // Every human trader this round; bots have no portfolio record.
+  const portfolios = useQuery<PortfolioRecord>('portfolios', { where: { roundId } })
   const portfolioData = useMemo(() => portfolios.records.map((r) => r.data), [portfolios.records])
   const mine = useMemo(() => portfolioData.find((p) => p.userId === userId) ?? null, [portfolioData, userId])
   const view = useMemo(() => portfolioView(mine, last, openOrders), [mine, last, openOrders])
@@ -104,6 +109,7 @@ export default function TradePage() {
           : null
 
   // Looked up by the id the exchange just closed, not "the newest round".
+  // Rounds change twice per round, so this orderBy/limit query re-queries rarely.
   const recentRounds = useQuery<RoundRecord>('rounds', { orderBy: 'startsAt', orderDir: 'desc', limit: 5 })
   const finished = useMemo(() => finishedRound(recentRounds.records, stream.roundId), [recentRounds.records, stream.roundId])
   const [hiddenFor, setHiddenFor] = useState<string | null>(null)

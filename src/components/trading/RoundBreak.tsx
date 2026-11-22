@@ -66,7 +66,7 @@ export function RoundBreakOverlay({
                       {self && <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>}
                     </span>
                     <span className="font-mono text-xs tabular-nums">{formatCents(s.equityCents, { whole: true })}</span>
-                    <Delta value={s.equityCents - START_CASH_CENTS} kind="money" whole className="w-24 justify-end text-xs" />
+                    <Delta value={s.equityCents - START_CASH_CENTS} kind="money" className="w-28 justify-end text-xs" />
                   </li>
                 )
               })}

@@ -5,7 +5,7 @@
  * round is live, and the market socket is connected.
  */
 
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Info } from 'lucide-react'
 import { priceBand } from '@/engine/core'
@@ -13,7 +13,7 @@ import type { OrderType, Side, Ticker } from '@/shared/contracts'
 import { cn } from '@/lib/utils'
 import { formatCents, formatPrice, formatQty } from '@/theme/format'
 import { placeOrder, transportMessage } from './api'
-import { parsePriceInput, parseQtyInput, rejectMessage, ticketReserve } from './logic'
+import { parsePriceInput, parseQtyInput, rejectIsStale, rejectMessage, ticketReserve, type RejectSnapshot } from './logic'
 
 export interface TicketProps {
   ticker: Ticker
@@ -25,7 +25,7 @@ export interface TicketProps {
   className?: string
 }
 
-type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number; orderId: string } | { kind: 'error'; message: string }
+type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number; orderId: string } | ({ kind: 'error'; message: string } & RejectSnapshot)
 
 export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, freeShares, className }: TicketProps) {
   const ids = useId()
@@ -34,6 +34,13 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
   const [qtyText, setQtyText] = useState('10')
   const [priceText, setPriceText] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  // Balances as of the latest render, read when a response arrives (not the
+  // values captured when the order was sent), so a reject is judged against
+  // the balances it is shown next to.
+  const free = useRef({ ticker, freeCashCents, freeShares })
+  useEffect(() => {
+    free.current = { ticker, freeCashCents, freeShares }
+  }, [ticker, freeCashCents, freeShares])
   /** Any edit makes the last send's result stale, so it is cleared (never while sending). */
   const edited = <T,>(set: (v: T) => void) => (v: T) => {
     set(v)
@@ -81,7 +88,13 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
       type === 'limit' && limitCents !== null ? { ticker, side, type, qty, limitCents } : { ticker, side, type, qty },
     )
     if (res.ok) setStatus({ kind: 'ok', batchId: res.data.batchId, orderId: res.data.orderId })
-    else setStatus({ kind: 'error', message: transportMessage(res.code) ?? rejectMessage(res.code) })
+    else
+      setStatus({
+        kind: 'error',
+        message: transportMessage(res.code) ?? rejectMessage(res.code),
+        code: res.code,
+        ...free.current,
+      })
   }
 
   const verb = side === 'buy' ? 'Buy' : 'Sell'
@@ -182,7 +195,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
             <p data-testid="ticket-blocked" className="text-muted-foreground">
               {blockedReason}
             </p>
-          ) : status.kind === 'error' ? (
+          ) : status.kind === 'error' && !rejectIsStale(status, { ticker, freeCashCents, freeShares }) ? (
             <p data-testid="ticket-error" role="alert" className="text-destructive">
               {status.message}
             </p>

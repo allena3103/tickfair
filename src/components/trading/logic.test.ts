@@ -20,6 +20,7 @@ import {
   parseQtyInput,
   portfolioView,
   readHoldings,
+  rejectIsStale,
   rejectMessage,
   reservedBy,
   ticketReserve,
@@ -154,6 +155,16 @@ describe('chart', () => {
       { batchId: 2, priceCents: 1_010 },
       { batchId: 3, priceCents: 1_020 },
     ])
+  })
+  it('sorts by batch (time order) and keeps only the newest 300', () => {
+    // 350 batches arriving in a scrambled order, split across tape and prints.
+    const all = Array.from({ length: 350 }, (_, i) => ({ ticker: 'ORBT' as const, roundId: 'r', batchId: i + 1, clearCents: 1_000 + i }))
+    const scrambled = [...all].sort((x, y) => ((x.batchId * 7919) % 350) - ((y.batchId * 7919) % 350))
+    const pts = chartPoints(scrambled.slice(0, 200), scrambled.slice(200), 'ORBT', 'r')
+    expect(pts).toHaveLength(300)
+    expect(pts[0]).toEqual({ batchId: 51, priceCents: 1_050 })
+    expect(pts[299]).toEqual({ batchId: 350, priceCents: 1_349 })
+    for (let i = 1; i < pts.length; i++) expect(pts[i].batchId).toBeGreaterThan(pts[i - 1].batchId)
   })
   it('line path handles empty, single, and flat series', () => {
     expect(linePath([], 100, 50)).toBeNull()
@@ -294,5 +305,33 @@ describe('cancelFailureToShow (E2-1)', () => {
   })
   it('shows nothing without a failure', () => {
     expect(cancelFailureToShow(null, [{ id: 'o-1' }])).toBeNull()
+  })
+})
+
+describe('rejectIsStale (BUG-1)', () => {
+  const at = (code: string) => ({ code, ticker: 'ORBT' as const, freeCashCents: 50_000, freeShares: 3 })
+  const now = (o: Partial<{ ticker: 'ORBT' | 'CURA'; freeCashCents: number; freeShares: number }> = {}) => ({
+    ticker: 'ORBT' as const,
+    freeCashCents: 50_000,
+    freeShares: 3,
+    ...o,
+  })
+  it('insufficient_cash clears only when free cash goes up', () => {
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeCashCents: 60_000 }))).toBe(true)
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeCashCents: 40_000 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeShares: 9 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_cash'), now())).toBe(false)
+  })
+  it('insufficient_shares clears only when free shares of that ticker go up', () => {
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeShares: 5 }))).toBe(true)
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeShares: 1 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeCashCents: 99_000 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_shares'), now({ ticker: 'CURA', freeShares: 50 }))).toBe(false)
+  })
+  it('keeps every other reject whatever the balances do', () => {
+    for (const code of ['outside_band', 'too_many_open', 'self_cross', 'rate_limited', 'round_closed', 'network', 'signed_out']) {
+      expect(rejectIsStale(at(code), now({ freeCashCents: 99_000, freeShares: 99 })), code).toBe(false)
+      expect(rejectIsStale(at(code), now({ freeCashCents: 1, freeShares: 0 })), code).toBe(false)
+    }
   })
 })

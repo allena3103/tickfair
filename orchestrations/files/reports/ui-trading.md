@@ -1,4 +1,74 @@
-# Report: ui-trading (wave 2), evaluator run 2 fix
+# Report: ui-trading (wave 2), fresh-review fixes
+
+**Fresh reviewer FAIL fixed, on code commit `07f8313`.** Every check was rerun by me on that commit.
+
+| Item | Fix | Proof |
+|------|-----|-------|
+| **F1** The PERF test could pass vacuously. | `tests/smoke.spec.ts`: before the window opens, the test asserts that each fingerprint group (chart tape, orders, fills, portfolios) was subscribed at least once. During the window it records received `core.record_change` frames for `tape`, and asserts at least one arrived. It still asserts at least 20 batches ran. | e2e passes with chart tape 0, orders 0, fills 0, portfolios 0 (`feedTape` 24). The earlier negative check (old chart query → 25 repeats, test failed) still applies. The counting is unchanged; only guards were added. |
+| **F4** The window could straddle a round end. | It now waits (up to 240 s) for a live phase with more than 50 s left, which covers the 3 s settle plus the 30 s window. It then records the round id and asserts the same round id after the window. | Same e2e run. |
+| **F2** (resolved by the reviewer) | Added the requested unit test: `chartPoints` gets 350 batches in scrambled order, split across tape and prints, and returns exactly the newest 300 in strictly ascending batch (time) order: first batch 51, last batch 350. | Unit pass. |
+| **F3** Response-time balance capture | **Known untested path.** The ref that `OrderTicket` reads when a reject arrives has no component test. A cheap test isn't practical: the unit setup renders to static markup with no DOM or events, and the e2e setup can't reliably land a fill between send and response. The rule it feeds (`rejectIsStale`) is fully unit-tested. | — |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 276 passed (276)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.5 min. PERF logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":24}` |
+
+The ui-shell `Tape` request (re-subscribes about once per batch) still stands.
+
+Files changed: `tests/smoke.spec.ts`, `src/components/trading/logic.test.ts`. Both are in my ownership list.
+
+---
+
+## Reviewer fixes on evaluator run 3
+
+**Reviewer FAIL fixed, on code commit `e5938cc`.** Every check was rerun by me on that commit.
+
+| Finding | Fix | Test |
+|---------|-----|------|
+| **F1** `rejectIsStale` cleared any reject on any balance change in either direction. | `logic.ts`: the ticket now stores the reject `code` and `ticker` with the balances (`RejectSnapshot`). A reject is stale only for `insufficient_cash` when free cash **rose**, or `insufficient_shares` when free shares of the **same ticker** rose. Every other code (`outside_band`, `too_many_open`, `self_cross`, `rate_limited`, `round_closed`, transport errors) is never cleared by balance changes, only by the next edit or send. | Unit `rejectIsStale (BUG-1)`, 3 cases: cash rise clears `insufficient_cash`, but a cash fall, a shares change, or no change keeps it; a shares rise clears `insufficient_shares`, but a fall, a cash-only change, or another ticker keeps it; 7 other codes are kept under both rises and falls. |
+| **F2** The balances stored with a reject came from the submit-time closure. | `OrderTicket.tsx`: a ref holds `{ ticker, freeCashCents, freeShares }` and is updated by an effect after each render. The response handler spreads `free.current` into the error, so the reject is judged against the balances at response time. A fill that lands while the order is in flight no longer hides the reject before it is shown. | Covered by the F1 rule tests, plus typecheck and lint (`react-hooks` rules pass with the ref updated in an effect, not during render). |
+| **F3** The PERF test counted per `subscriptionId`, so a re-subscribe under a fresh id would go uncounted. | `tests/smoke.spec.ts`: frames are counted per query fingerprint, `JSON.stringify([collection, where, orderBy, orderDir, limit])`. The SDK de-duplicates identical query keys, so one fingerprint is one live query. A repeat under any id counts. | **Negative check, rerun with the new counting:** with the old chart query (`orderBy: 'at', limit: 300`) put back, chart tape was **25** in 30 s and the test failed (exit 1). With the fix: chart tape 0, orders 0, fills 0, portfolios 0. |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 275 passed (275)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.6 min. PERF logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":23}` |
+
+The ui-shell `Tape` request below still stands (`feedTape` 23 in 30 s).
+
+Files changed: `src/components/trading/logic.ts`, `logic.test.ts`, `OrderTicket.tsx`, `tests/smoke.spec.ts`. All are in my ownership list.
+
+---
+
+## Evaluator run 3 fixes
+
+**Evaluator run 3 fixes, on code commit `3ba2718`,** rebased onto `agent/exchange` at `e6cc3e4` (clean). Every check was rerun by me on that commit.
+
+| Item | Fix | Test |
+|------|-----|------|
+| **BUG-1** A stale reject ("You do not have enough free shares to sell.") stayed on the ticket after free shares or cash changed. | `OrderTicket.tsx`: a reject is stored with the free cash and free shares it was judged against. It is shown only while both are unchanged (`rejectIsStale` in `logic.ts`). This is derived on each render, so cancelling the resting order that caused it, or a fill, removes the message at once. | Unit: `rejectIsStale (BUG-1)`, where unchanged free cash and shares keep the reject, and a change in either drops it. |
+| **BUG-3** The round-break overlay rounded P&L to whole dollars. | `RoundBreak.tsx`: P&L now shows cents. Equity stays whole dollars, which matches the current `Leaderboard` and `/rounds`: both show equity in whole dollars and P&L in cents. | Unit (`views.test.tsx`): standings with +$123.45 render `+$123.45` and equity `$100,123`. |
+| **PERF** One `/trade` page re-sent `core.subscribe` for tape about 1,335 times in about 12 minutes, with the same subscription ids. | The cause was not options identity: the SDK's `useQuery` keys on `JSON.stringify(options)`. In `RecordSocket.handleMessage`, `RECORD_CHANGE` re-sends `core.subscribe` (same subscription id) for **every query on that collection with `orderBy` or `limit`**, while plain `where` queries are patched in place. Tape gets new rows every batch. Fix: my queries on busy collections now use `where` only, and I sort and cap on the client. Each set is bounded per round. <br>• `PriceChart`: tape `{ roundId, ticker }` (at most about 900 rows per round; `chartPoints` keeps the newest 300). <br>• `trade.tsx`: orders `{ roundId, status, userId }` (at most 20 live), fills `{ roundId, userId }` (sorted, capped to 100 for display), portfolios `{ roundId }` (human traders only). <br>• `rounds` keeps `orderBy/limit 5`: rounds change twice per round, and without a limit that query would grow without bound. | New e2e in `tests/smoke.spec.ts`: `'terminal queries are not re-subscribed on every print (PERF)'`. In a live round, it counts `core.subscribe` frames sent per subscription over 30 s (and asserts at least 20 batches ran). **With the fix:** chart tape 0, orders 0, fills 0, portfolios 0 (each must be ≤ 1, allowing one reconnect). **Negative check:** with the old chart query (`orderBy: 'at', limit: 300`) put back, chart tape was **26** in 30 s and the test failed (exit 1). |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 274 passed (274)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.7 min. The PERF test logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":23}` |
+
+**Request for the director (outside my files):** ui-shell's `Tape` (`src/components/feed/Tape.tsx`, `useQuery('tape', { where, orderBy: 'at', orderDir: 'desc', limit })`) still re-sends `core.subscribe` about once per batch: `feedTape` was 23–28 per 30 s in my runs, on both `/trade` and `/home`. That is the rest of the evaluator's count. The same fix applies: query `where: { roundId[, ticker] }` with no `orderBy`/`limit`, then sort by `at` and slice on the client. `NewsFeed` uses the same pattern, but news changes rarely. My PERF test already reports `feedTape`, so it can confirm that fix.
+
+Files changed: `src/components/trading/OrderTicket.tsx`, `RoundBreak.tsx`, `PriceChart.tsx`, `logic.ts`, `logic.test.ts`, `views.test.tsx`, `src/pages/(app)/(protected)/trade.tsx`, `tests/smoke.spec.ts`. All are in my ownership list.
+
+---
+
+## Evaluator run 2 fix
 
 **E2-1, on code commit `5b5503a`,** rebased onto `agent/exchange` at `634b864` (clean). Every check was rerun by me on that commit.
 
@@ -173,6 +243,8 @@ Round 1 requests:
 
 ## 6. Lessons
 
+- **SDK `useQuery` with `orderBy` or `limit` re-queries on every change in its collection** (`RecordSocket` re-sends `core.subscribe` on each `RECORD_CHANGE`). On busy collections (tape, portfolios, orders, fills), query with `where` only and sort and slice on the client. Options identity doesn't matter: the hook keys on the JSON of the options.
+
 - **`ex.phase` can arrive before `ex.snapshot`** on the first connect (the room's `ensureAwake` broadcasts first). The client must ignore deltas until it has a snapshot.
 - **The book can be crossed between batches.** Resting orders wait for the next clear, so `depth` can show the best bid above the best ask. Don't show a negative spread.
 - **Order and fill rows don't arrive in the action response.** `placeOrder` returns `{ orderId, batchId }`, and the rows show up about 1 s later through the mirror. Key test assertions on `data-order-id`.
@@ -183,7 +255,10 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`. This report is committed on top of it.
+- Fresh-review fix code commit: `07f8313`. This report is committed on top of it.
+- Reviewer-fix code commit: `e5938cc`.
+- Evaluator run 3 code commit: `3ba2718`, on `agent/exchange` at `e6cc3e4`.
+- E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`.
 - Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`.
 - Review round 2 code commit: `1206662`.
 - Review round 1 code commit: `e48f195`.
