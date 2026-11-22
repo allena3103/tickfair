@@ -170,9 +170,13 @@ export function registerRealtimeRoutes(app: Hono<AppContext>): void {
     '/ws/cron/:roomId',
     wsRoute(
       (env) => env.CRON_ROOMS,
-      // Authenticated users get their current app role. Anonymous connections
-      // have no role and CronRoom enforces them as read-only viewers.
-      async (auth, env) => ({ role: await resolveAppRole(env, auth.userId) }),
+      // Only admins (the owner resolves to admin) may trigger, pause, or
+      // resume: tasks call owner-billed integrations (PLAN §10). Everyone else
+      // is a read-only viewer; anonymous connections have no role and CronRoom
+      // also treats them as read-only.
+      async (auth, env) => ({
+        role: (await resolveAppRole(env, auth.userId)) === 'admin' ? 'admin' : 'viewer',
+      }),
     ),
   )
 
