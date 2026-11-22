@@ -78,14 +78,28 @@ async function sendShock(env: Env, req: ExchangeShockRequest): Promise<ExchangeS
 }
 
 /**
+ * Dev and test servers (`ALLOW_DEBUG_ROUTES=true`, set by `deepspace dev start`
+ * and `test run`, never in production) make no paid LLM calls unless
+ * `NEWS_LLM_IN_DEV=true` is set explicitly. Production always allows them.
+ */
+export function paidNewsAllowed(env: Pick<Env, 'ALLOW_DEBUG_ROUTES' | 'NEWS_LLM_IN_DEV'>): boolean {
+  return env.ALLOW_DEBUG_ROUTES !== 'true' || env.NEWS_LLM_IN_DEV === 'true'
+}
+
+/**
  * Runs one news event end to end. Checks for a live round first so no paid
- * call is made between rounds.
+ * call is made between rounds, and makes no paid call on a dev/test server
+ * unless explicitly enabled.
  */
 export async function runNewsEvent(env: Env, draw: NewsDraw, invoke: IntegrationInvoke): Promise<PublishResult> {
   const roundId = await findLiveRoundId(env)
   if (!roundId) {
     console.log('[news] skipped round_closed')
     return { status: 'skipped', reason: 'round_closed' }
+  }
+  if (!paidNewsAllowed(env)) {
+    console.log('[news] skipped llm_disabled_in_dev')
+    return { status: 'skipped', reason: 'llm_disabled_in_dev' }
   }
   return publishNews(draw, {
     roundId,

@@ -123,6 +123,11 @@ export interface Env extends DOBindings<typeof __DO_MANIFEST__> {
    * an authenticated app owner/admin. deepspace dev/test set it locally.
    */
   ALLOW_DEBUG_ROUTES?: string
+  /**
+   * Local dev and test servers (ALLOW_DEBUG_ROUTES=true) make no paid news
+   * LLM calls unless this is exactly "true". Production ignores it.
+   */
+  NEWS_LLM_IN_DEV?: string
 }
 
 export type AppContext = { Bindings: Env }

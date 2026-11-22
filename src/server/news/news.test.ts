@@ -7,7 +7,7 @@ import { publishNews } from './publish.js'
 import type { PublishDeps } from './publish.js'
 import { countSentences, validateReply } from './validate.js'
 import { drawFor, minuteSeed, newsTick } from './tick.js'
-import { findLiveRoundId } from './runtime.js'
+import { findLiveRoundId, paidNewsAllowed, runNewsEvent } from './runtime.js'
 
 const UP: NewsDraw = { ticker: 'ORBT', direction: 1, size: 'major', deltaBps: 600, rampBatches: 15 }
 const DOWN: NewsDraw = { ticker: 'CURA', direction: -1, size: 'minor', deltaBps: -150, rampBatches: 12 }
@@ -286,5 +286,30 @@ describe('findLiveRoundId', () => {
 
   it('returns null when there are no rounds', async () => {
     expect(await findLiveRoundId(envWith([]).env)).toBeNull()
+  })
+})
+
+describe('paid LLM calls on dev/test servers', () => {
+  it('allows paid calls in production and only with NEWS_LLM_IN_DEV=true on dev/test servers', () => {
+    expect(paidNewsAllowed({})).toBe(true)
+    expect(paidNewsAllowed({ ALLOW_DEBUG_ROUTES: 'false' })).toBe(true)
+    expect(paidNewsAllowed({ ALLOW_DEBUG_ROUTES: 'true' })).toBe(false)
+    expect(paidNewsAllowed({ ALLOW_DEBUG_ROUTES: 'true', NEWS_LLM_IN_DEV: '1' })).toBe(false)
+    expect(paidNewsAllowed({ ALLOW_DEBUG_ROUTES: 'true', NEWS_LLM_IN_DEV: 'true' })).toBe(true)
+  })
+
+  it('skips a live-round event on a dev server without invoking the LLM', async () => {
+    const live = [{ recordId: 'r1', data: { status: 'live', startsAt: 1, endsAt: 2 } }]
+    const fetch = vi.fn(async (_req: Request) => Response.json({ success: true, data: { records: live } }))
+    const env = {
+      DEEPSPACE_APP_ID: 'app_test',
+      OWNER_USER_ID: 'owner',
+      ALLOW_DEBUG_ROUTES: 'true',
+      RECORD_ROOMS: { idFromName: () => 'id', get: () => ({ fetch }) },
+    } as unknown as Env
+    const invoke = vi.fn()
+    expect(await runNewsEvent(env, UP, invoke)).toEqual({ status: 'skipped', reason: 'llm_disabled_in_dev' })
+    expect(invoke).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })
