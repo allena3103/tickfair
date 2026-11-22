@@ -52,7 +52,8 @@ export function DepthLadder({
             <tr className="border-y border-border bg-background" data-testid="ladder-spread">
               <td className="px-3 py-1.5 text-sm text-foreground">{lastCents ? formatPrice(lastCents) : '—'}</td>
               <td className="px-3 py-1.5 text-right text-muted-foreground">
-                {spreadCents !== null ? `spread ${formatPrice(spreadCents)}` : 'last'}
+                {/* Orders wait for the next batch, so the book can cross until it clears. */}
+                {spreadCents === null ? 'last' : spreadCents > 0 ? `spread ${formatPrice(spreadCents)}` : 'crosses next batch'}
               </td>
             </tr>
             {bids.map(([px, qty]) => (

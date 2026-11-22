@@ -25,7 +25,7 @@ export interface TicketProps {
   className?: string
 }
 
-type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number } | { kind: 'error'; message: string }
+type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'ok'; batchId: number; orderId: string } | { kind: 'error'; message: string }
 
 export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, freeShares, className }: TicketProps) {
   const ids = useId()
@@ -75,7 +75,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
     const res = await placeOrder(
       type === 'limit' && limitCents !== null ? { ticker, side, type, qty, limitCents } : { ticker, side, type, qty },
     )
-    if (res.ok) setStatus({ kind: 'ok', batchId: res.data.batchId })
+    if (res.ok) setStatus({ kind: 'ok', batchId: res.data.batchId, orderId: res.data.orderId })
     else setStatus({ kind: 'error', message: transportMessage(res.code) ?? rejectMessage(res.code) })
   }
 
@@ -182,7 +182,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
               {status.message}
             </p>
           ) : status.kind === 'ok' ? (
-            <p data-testid="ticket-ok" className="text-foreground">
+            <p data-testid="ticket-ok" data-order-id={status.orderId} className="text-foreground">
               Order in for batch <span className="font-mono tabular-nums">#{status.batchId}</span>.
             </p>
           ) : null}

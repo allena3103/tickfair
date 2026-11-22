@@ -114,6 +114,7 @@ export default function TradePage() {
       data-testid="trade-terminal"
       data-phase={stream.phase ?? 'unknown'}
       data-round-id={stream.roundId}
+      data-phase-ends-at={stream.phaseEndsAt}
       data-connected={stream.connected}
       className="relative mx-auto flex max-w-[1600px] flex-col gap-3 p-3"
     >
