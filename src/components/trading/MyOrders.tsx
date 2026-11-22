@@ -12,7 +12,7 @@ import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from '@/components/feed
 import { Delta } from '@/theme/Delta'
 import { formatCents, formatPrice, formatQty } from '@/theme/format'
 import { cancelOrder, transportMessage } from './api'
-import { rejectMessage, remainingQty, type PortfolioView } from './logic'
+import { cancelFailureToShow, rejectMessage, remainingQty, type CancelFailure, type PortfolioView } from './logic'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
 
@@ -40,14 +40,15 @@ export function OpenOrders({
   className?: string
 }) {
   const [pending, setPending] = useState<Record<string, boolean>>({})
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<CancelFailure | null>(null)
+  const failureText = cancelFailureToShow(failure, orders)
 
   async function cancel(id: string) {
     setFailure(null)
     setPending((p) => ({ ...p, [id]: true }))
     const res = await cancelOrder({ orderId: id })
     if (!res.ok) {
-      setFailure(transportMessage(res.code) ?? rejectMessage(res.code))
+      setFailure({ orderId: id, message: transportMessage(res.code) ?? rejectMessage(res.code) })
       setPending((p) => ({ ...p, [id]: false }))
     }
     // On success the mirrored record flips to cancelled and the row leaves.
@@ -61,7 +62,7 @@ export function OpenOrders({
       className={className}
     >
       {status === 'error' && <FeedError message={error || 'Could not load your orders.'} />}
-      {failure && <FeedError message={failure} />}
+      {failureText && <FeedError message={failureText} />}
       {status === 'loading' ? (
         <FeedSkeleton rows={3} />
       ) : orders.length === 0 ? (
