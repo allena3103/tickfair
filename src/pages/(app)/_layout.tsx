@@ -35,7 +35,7 @@ export default function AppLayout() {
         <FloorPresenceProvider>
           <div className="flex h-screen flex-col overflow-hidden bg-background">
             <AppHeader />
-            <main className="min-h-0 flex-1 overflow-y-auto">
+            <main className="relative min-h-0 flex-1 overflow-y-auto">
               <Suspense fallback={<div aria-busy="true" className="h-full bg-background" />}>
                 <Outlet />
               </Suspense>

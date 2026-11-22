@@ -31,7 +31,7 @@ export function FeedPanel({
         <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</h2>
         {meta != null && <span className="font-mono text-xs text-muted-foreground">{meta}</span>}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto">{children}</div>
     </section>
   )
 }
