@@ -107,14 +107,14 @@ function Row({ row, isSelf }: { row: LeaderRow; isSelf: boolean }) {
       className={cn('border-t border-border', isSelf && 'bg-accent')}
     >
       <td className="px-3 py-1.5 font-mono tabular-nums text-muted-foreground">{row.rank}</td>
-      <td className="max-w-0 truncate py-1.5">
+      <td className="min-w-[7rem] break-words py-1.5 pr-2 leading-snug">
         {isSelf && <span className="mr-1.5 inline-block h-3 w-0.5 bg-primary align-middle" aria-hidden />}
         {row.displayName}
-        {isSelf && <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>}
+        {isSelf && <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground">(you)</span>}
       </td>
-      <td className="py-1.5 text-right font-mono tabular-nums">{formatCents(row.equityCents, { whole: true })}</td>
-      <td className="px-3 py-1.5 text-right">
-        <Delta value={row.pnlCents} kind="money" whole />
+      <td className="whitespace-nowrap py-1.5 text-right font-mono tabular-nums">{formatCents(row.equityCents, { whole: true })}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-right">
+        <Delta value={row.pnlCents} kind="money" />
       </td>
     </tr>
   )
