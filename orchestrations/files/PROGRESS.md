@@ -23,7 +23,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | **merged** | builder ✓, director ✓ (264 unit, 27 e2e ×2, build) | 3 (R1 PASS+2 minor; R2 PASS+minors; R3 FAIL rejected by the director after a source check: rounding already correct) | ✓ | e2e flaked once in ~8 runs; cause not yet identified. |
 | review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
-| evaluator | final | run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
+| evaluator | final | run 2: PASS (18/18), E2-1 minor in the loop; run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
 
 ## Log
 
@@ -51,3 +51,4 @@ The director updates this file as each feature moves through the loop. Newest no
 - Bug fixes merged: ui-trading (BUG-3, 5a) and ui-shell (BUG-1, 4, 5), each through checks and a fresh review (PASS). Full suite: 268 unit, 31 e2e (twice), build OK.
 - The one approved paid LLM call (director, via the CLI through the app's own `makeCallLLM` + `validateReply`): the response is the Anthropic message under `data`. `extractText` parsed it, validation passed. Headline: "Orbital Compute Secures Major Government Contract Worth Billions". This resolves news's open question about the response shape.
 - Next: evaluator run 2.
+- Evaluator run 2 (fresh): **18/18 PASS**. One minor bug (E2-1: a stale 'already filled' cancel message stays on screen) went back to ui-trading. The evaluator will run again after the fix.
