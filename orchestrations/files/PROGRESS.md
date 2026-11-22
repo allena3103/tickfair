@@ -14,12 +14,12 @@ The director updates this file as each feature moves through the loop. Newest no
 ## Status
 
 | Worker | Wave | State | Check runs | Review rounds | Merged | Notes |
+|--------|------|-------|------------|---------------|--------|-------|
 | foundation | 0 | **merged** | builder ✓, director ✓ (tsc, lint, 20 unit, 11 e2e, build) | 2 (R1 FAIL: unapproved codes, resolved by a director spec update; R2 PASS) | ✓ | App registered `app_01M80AVDTA8NPYNJWXARJYZRPG`. Spike S1–S3 pass locally; prod subrequest cap still unknown. |
-| foundation | 0 | not started | – | – | – | |
-| engine-core | 1 | not started | – | – | – | |
-| market-sim | 1 | not started | – | – | – | |
-| news | 1 | not started | – | – | – | |
-| ui-shell | 1 | not started | – | – | – | |
+| engine-core | 1 | building | – | – | – | |
+| market-sim | 1 | building | – | – | – | |
+| news | 1 | building | – | – | – | |
+| ui-shell | 1 | building | – | – | – | |
 | exchange-runtime | 2 | not started | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
