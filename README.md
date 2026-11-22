@@ -94,18 +94,18 @@ One integration was enough. Every other candidate either fought the design or ad
 
 ---
 
-## How it was built: one director, many agents
+## How it was built: I directed one main agent, and it directed the rest
 
-I acted as the **director**. Each builder agent ran as its own Claude Code session in its own git worktree, visible as a tab in my terminal workspace. Agents built and checked their own work. I planned, wrote the briefs, verified, and merged.
+I directed a single **main agent** (Claude Code), and the main agent acted as **director** for every other agent. I set the goals, made the product and design decisions, and approved each stage. The main agent planned the work, wrote the briefs, started each builder as its own Claude Code session in its own git worktree (visible as a tab in my terminal workspace), spawned the reviewers and the evaluator, checked their output, and merged.
 
-1. **Plan first.** [PLAN.md](PLAN.md) sets out the scope, the fairness algorithm, the data model, and the risks to check before building. A shared brief, [BRIEF.md](orchestrations/files/BRIEF.md), froze the interfaces between agents so they could work in parallel without conflicting.
-2. **Waves.**
+1. **Plan first.** At my direction, the main agent wrote [PLAN.md](PLAN.md): the scope, the fairness algorithm, the data model, and the risks to check before building. I answered its open questions and approved the plan. A shared brief, [BRIEF.md](orchestrations/files/BRIEF.md), froze the interfaces between agents so they could work in parallel without conflicting.
+2. **Waves.** The main agent ran the builders in waves:
    - `foundation` ran alone: the app skeleton, data definitions, and risk checks.
    - Then `engine-core`, `market-sim`, `news`, and `ui-shell` ran in parallel, each owning a separate set of files.
    - Then `exchange-runtime` and `ui-trading` ran one at a time, which saved usage when the meter got high.
-3. **The loop for every builder:**
+3. **The loop for every builder**, which I specified and the main agent enforced:
    - the builder runs its own typecheck, lint, and tests;
-   - I rerun the same checks myself;
+   - the main agent reruns the same checks itself instead of trusting the builder's report;
    - a **fresh reviewer** sees only the spec, the acceptance criteria, and the diff, with no other context;
    - its findings go back to the builder, for at most 3 rounds;
    - work merges one branch at a time, with the full suite after every merge.
