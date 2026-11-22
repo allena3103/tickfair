@@ -81,3 +81,9 @@ Checks on `5089766`: `npx tsc --noEmit` exit 0; `npm run lint` exit 0.
 | 3 | 2,964 ms | 11,104 ms | 86/86 |
 
 Standalone, property.test.ts went from 11.9 s to 0.77 s of test time. `market.test.ts` is now the slowest file, and it caused the one load-related failure seen here.
+
+## Addendum: review round 2 fixes
+
+- **F1:** the seed-7 reproducibility test now asserts `a.violations` is empty before comparing `b` to `a`.
+- **F2:** the negativity checks are NaN-safe (`!(x >= 0)`, `!(qty >= reservedQty)`). The conservation check also rejects non-finite totals, because `JSON.stringify(NaN)` is `null` and two NaN totals would otherwise compare equal. A new self-test shows NaN cash, qty, reservedQty, and total cash are all reported. Reverting the cash check to `< 0` makes that self-test fail (checked, then restored).
+- `npx tsc --noEmit` exit 0; `npm run lint` exit 0; `npx deepspace test run unit --port 5182` ×3: 87/87 passed each run (8 files).
