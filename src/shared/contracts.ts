@@ -114,7 +114,7 @@ export interface ExchangeShockRequest {
   deltaBps: number
   rampBatches: number
 }
-export type ExchangeShockResponse = { ok: true } | { ok: false; code: 'round_closed' }
+export type ExchangeShockResponse = { ok: true } | { ok: false; code: 'round_closed' | 'bad_request' }
 
 // ---------------------------------------------------------------------------
 // ExchangeRoom → client WebSocket (`/ws/exchange/:roomId`; anonymous = spectator)

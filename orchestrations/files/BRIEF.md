@@ -99,7 +99,7 @@ export type RejectCode =
 ```ts
 // POST /exchange/order  body: { userId, displayName, params: PlaceOrderParams } → { ok: true, data: PlaceOrderData } | { ok: false, code: RejectCode }
 // POST /exchange/cancel body: { userId, orderId }                                → { ok: true } | { ok: false, code: RejectCode }
-// POST /exchange/shock  body: { newsId, ticker, deltaBps, rampBatches }           → { ok: true } | { ok: false, code: 'round_closed' }
+// POST /exchange/shock  body: { newsId, ticker, deltaBps, rampBatches }           → { ok: true } | { ok: false, code: 'round_closed' | 'bad_request' (HTTP 400) }
 // Singleton room name: `exchange:${DEEPSPACE_APP_ID}`; binding EXCHANGE_ROOMS.
 ```
 

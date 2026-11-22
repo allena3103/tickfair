@@ -111,7 +111,6 @@ export interface CoreDeps {
 }
 
 /** Request bodies arrive as untyped JSON from the worker; the DO re-checks everything. */
-export type ShockResult = ExchangeShockResponse | { ok: false; code: 'bad_request' }
 
 type Msgs = ExchangeServerMsg[]
 
@@ -242,7 +241,7 @@ export class ExchangeCore {
   }
 
   /** A news shock moves the hidden target; the ramp starts at the next batch. Same newsId twice = once. */
-  shock(now: number, body: unknown): ShockResult {
+  shock(now: number, body: unknown): ExchangeShockResponse {
     const b = asObject(body)
     const { newsId, ticker, deltaBps, rampBatches } = b ?? {}
     const valid =
