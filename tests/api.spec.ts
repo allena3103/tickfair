@@ -40,9 +40,9 @@ test.describe('News API', () => {
     expect(res.status()).toBe(401)
   })
 
-  test('anthropic proxy without auth is 401', async ({ request }) => {
+  test('anthropic proxy without auth is 403', async ({ request }) => {
     const res = await request.post('/api/integrations/anthropic/chat-completion', { data: {} })
-    expect(res.status()).toBe(401)
+    expect(res.status()).toBe(403)
   })
 })
 
@@ -66,8 +66,9 @@ dsTest.describe('News API (signed in)', () => {
     const [a] = await users(1)
     await a.page.goto('/home')
     const token = await bearerFor(a.page)
-    // `{}` has no `messages`, so even an unpatched proxy is refused by the
-    // validator before any model runs. The app must refuse it first: 403.
+    // `{}` has no `messages`, so even if the proxy regressed, the api-worker
+    // validator would refuse it before any model runs. The app must refuse
+    // it first: 403 for every owner-billed integration.
     const res = await a.page.request.post('/api/integrations/anthropic/chat-completion', {
       headers: { Authorization: `Bearer ${token}` },
       data: {},

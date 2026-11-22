@@ -8,8 +8,11 @@ import type { ActionContext, ActionHandler, ActionResult } from 'deepspace/worke
 import { TICKERS } from '../shared/contracts.js'
 import type { NewsDraw, RejectCode, Ticker } from '../shared/contracts.js'
 import type { Env } from '../../worker.js'
+import { createRng, drawNewsEvent } from '../engine/market/index.js'
 import type { IntegrationInvoke } from '../server/news/llm.js'
 import type { PublishResult } from '../server/news/publish.js'
+import { latestNewsAt, runNewsEvent } from '../server/news/runtime.js'
+import { drawFor, randomSalt } from '../server/news/tick.js'
 
 export const BREAKING_NEWS_COOLDOWN_MS = 10_000
 
@@ -60,3 +63,11 @@ export function makeBreakingNews(deps: BreakingNewsDeps): ActionHandler<Env> {
     }
   }
 }
+
+/** Registered in src/actions/index.ts by the director: `breakingNews`. */
+export const breakingNews: ActionHandler<Env> = makeBreakingNews({
+  draw: (ticker, now) => drawFor({ createRng, drawNewsEvent }, ticker, now, randomSalt()),
+  run: runNewsEvent,
+  latestNewsAt,
+  now: Date.now,
+})

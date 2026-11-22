@@ -9,7 +9,7 @@ import { countSentences, validateReply } from './validate.js'
 import { drawFor, minuteSeed, newsTick } from './tick.js'
 
 const UP: NewsDraw = { ticker: 'ORBT', direction: 1, size: 'major', deltaBps: 600, rampBatches: 15 }
-const DOWN: NewsDraw = { ticker: 'CURA', direction: -1, size: 'minor', deltaBps: 150, rampBatches: 12 }
+const DOWN: NewsDraw = { ticker: 'CURA', direction: -1, size: 'minor', deltaBps: -150, rampBatches: 12 }
 
 const reply = (o: Record<string, unknown>) => JSON.stringify(o)
 const GOOD = reply({
@@ -185,6 +185,13 @@ describe('publishNews', () => {
     expect(logs[0]).toMatch(/^\[news\] skipped write_failed/)
   })
 
+  it('passes a signed (negative) deltaBps through unchanged', async () => {
+    const down = reply({ headline: 'Curaline Bio trial halted', body: 'Curaline Bio paused its lead study.', sentiment: 'negative' })
+    const { deps, shocks } = publishDeps(down)
+    expect((await publishNews(DOWN, deps)).status).toBe('published')
+    expect(shocks).toEqual([{ newsId: 'news_1', ticker: 'CURA', deltaBps: -150, rampBatches: 12 }])
+  })
+
   it('reports a refused shock without throwing', async () => {
     const { deps } = publishDeps(GOOD, { shock: vi.fn(async () => ({ ok: false as const, code: 'round_closed' as const })) })
     expect(await publishNews(UP, deps)).toMatchObject({ status: 'published_no_shock', reason: 'round_closed' })
@@ -218,6 +225,17 @@ describe('newsTick', () => {
     expect(minuteSeed(60_000, 'a')).toBe(minuteSeed(119_999, 'a'))
     expect(minuteSeed(60_000, 'a')).not.toBe(minuteSeed(120_000, 'a'))
     expect(minuteSeed(60_000, 'a')).not.toBe(minuteSeed(60_000, 'b'))
+  })
+
+  it('works with the real engine draw and stays in bounds', async () => {
+    const { createRng, drawNewsEvent } = await import('../../engine/market/index.js')
+    for (let i = 0; i < 200; i++) {
+      const d = drawFor({ createRng, drawNewsEvent }, undefined, i, 'salt')
+      expect(Math.sign(d.deltaBps)).toBe(d.direction)
+      expect(Math.abs(d.deltaBps)).toBeGreaterThanOrEqual(100)
+      expect(Math.abs(d.deltaBps)).toBeLessThanOrEqual(800)
+    }
+    expect(drawFor({ createRng, drawNewsEvent }, 'VOLT', 1, 'x').ticker).toBe('VOLT')
   })
 
   it('drawFor pins the ticker but keeps the engine draw', () => {
