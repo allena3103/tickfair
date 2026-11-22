@@ -230,7 +230,7 @@ function ClearingDiagram() {
         {/* clearing price */}
         <path d="M40 112 H308" className="fill-none stroke-primary" strokeWidth="1" strokeDasharray="4 4" />
         <circle cx="170" cy="112" r="4" className="fill-primary" />
-        <text x="178" y="104" className="fill-primary" fontSize="11">
+        <text x="48" y="104" className="fill-primary" fontSize="11">
           clears 42.10
         </text>
         <text x="236" y="54" className="fill-up" fontSize="10">

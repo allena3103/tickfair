@@ -80,3 +80,11 @@ export function formatClock(ms: number): string {
 export function formatTimeOfDay(at: number): string {
   return new Date(at).toLocaleTimeString('en-GB', { hour12: false })
 }
+
+/** Signed money: 125000 → "+$1,250.00", −4000 → "−$40.00", 0 → "$0.00". */
+export function formatSignedCents(cents: number, opts: { whole?: boolean } = {}): string {
+  if (!Number.isFinite(cents)) return '—'
+  const body = formatCents(Math.abs(cents), opts)
+  if (body === '$0' || body === '$0.00') return body
+  return `${cents > 0 ? '+' : MINUS}${body}`
+}
