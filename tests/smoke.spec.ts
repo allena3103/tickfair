@@ -319,13 +319,13 @@ test.describe('trade terminal (signed in)', () => {
     const terminal = page.getByTestId('trade-terminal')
     await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 20_000 })
     // Prints only flow in a live round. The 3 s settle plus the 30 s window must
-    // not straddle a round end, so wait for a live phase with at least 50 s left
+    // not straddle a round end, so wait for a live phase with at least 70 s left (15 s chart wait + 3 s settle + 30 s window + margin)
     // (waiting out a break or a round that is about to end; LESSONS 25).
     await expect
       .poll(
         async () =>
           (await terminal.getAttribute('data-phase')) === 'live' &&
-          Number(await terminal.getAttribute('data-phase-ends-at')) - Date.now() > 50_000,
+          Number(await terminal.getAttribute('data-phase-ends-at')) - Date.now() > 70_000,
         { timeout: 240_000, intervals: [1_000] },
       )
       .toBe(true)
