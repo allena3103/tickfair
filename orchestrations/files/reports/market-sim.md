@@ -123,3 +123,19 @@ The CLI doesn't print per-file durations, so I ran the same full suite 3 more ti
 
 - `src/engine/core/property.test.ts` (engine-core) now takes about 18.6s under the full suite. It sets the total unit duration and is the main source of the CPU load that pushed my file past 5s. I didn't touch it, because it isn't mine. If it uses per-iteration `expect()` in its property loops, the same fix probably applies.
 - Lesson for later workers: in property-style loops, collect violations and assert once. Don't call `expect()` per iteration.
+
+---
+
+# Round 3: reviewer finding (ramp bounds checked against the code's own constant)
+
+- `drawNewsEvent` loop: the ramp check now uses the spec literals `rampBatches >= 10 && <= 20` again, instead of `RAMP_BATCHES.lo/hi`.
+- Same weakness, also fixed: the size bounds in that loop use `MINOR_BPS`/`MAJOR_BPS`. Before the loop, the test now asserts once that `MINOR_BPS` is `{ lo: 100, hi: 200 }` and `MAJOR_BPS` is `{ lo: 400, hi: 800 }`. A change to the constants now fails the test instead of silently widening what it accepts.
+- Only `src/engine/market/market.test.ts` changed.
+
+```
+$ npx tsc --noEmit                          → exit 0
+$ npm run lint                              → exit 0
+$ npx deepspace test run unit --port 5183   → Test Files 8 passed (8), Tests 85 passed (85), Duration 36.50s, exit 0
+```
+
+The 36.5s total (17–19s in round 2) reflects machine load from parallel workers. The market file's work is unchanged apart from two cheap asserts.

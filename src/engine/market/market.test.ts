@@ -157,6 +157,10 @@ describe('drawNewsEvent', () => {
     const tickers = new Set<Ticker>()
     let majors = 0
     let ups = 0
+    // Pin the size ranges the loop checks against to the spec, so a change to
+    // the constants can't silently widen what the loop accepts.
+    expect(MINOR_BPS).toEqual({ lo: 100, hi: 200 })
+    expect(MAJOR_BPS).toEqual({ lo: 400, hi: 800 })
     const bad: unknown[] = []
     for (let i = 0; i < 10_000; i++) {
       const d = drawNewsEvent(rng)
@@ -170,8 +174,9 @@ describe('drawNewsEvent', () => {
         mag >= range.lo &&
         mag <= range.hi &&
         Number.isInteger(d.rampBatches) &&
-        d.rampBatches >= RAMP_BATCHES.lo &&
-        d.rampBatches <= RAMP_BATCHES.hi
+        // Spec literals (task 02), not the constants the code draws from.
+        d.rampBatches >= 10 &&
+        d.rampBatches <= 20
       if (!ok) bad.push(d)
       tickers.add(d.ticker)
       if (d.size === 'major') majors++
