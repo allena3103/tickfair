@@ -205,6 +205,144 @@ test.describe('presence', () => {
   })
 })
 
+/**
+ * PERF: the SDK re-sends a full core.subscribe for every ordered/limited
+ * subscription each time its collection changes. Fingerprint every subscribe
+ * frame by its query (collection + where + orderBy + orderDir + limit), so a
+ * re-subscribe counts whatever its subscription id. Over 30 s of live prints
+ * the ui-shell feeds should send (near) zero new ones.
+ *
+ * Also checks the limit-less tape query really shows the newest print first.
+ */
+test.describe('feed subscriptions', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 1, `Needs 1 usable test account, found ${usable}.`)
+  test.setTimeout(300_000)
+
+  interface Query {
+    collection?: string
+    where?: Record<string, unknown>
+    orderBy?: string
+    orderDir?: string
+    limit?: number
+  }
+  interface Print {
+    recordId: string
+    data: { roundId: string; at: number; batchId: number }
+  }
+  const parse = (raw: string | Buffer): { type?: string; payload?: Record<string, unknown> } | null => {
+    try {
+      return JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8'))
+    } catch {
+      return null
+    }
+  }
+  const fingerprint = (q: Query) =>
+    JSON.stringify([q.collection, q.where ?? null, q.orderBy ?? null, q.orderDir ?? null, q.limit ?? null])
+  /** ui-shell's Tape: tape by round only (the chart's query adds a ticker). */
+  const isShellTape = (q: Query) => q.collection === 'tape' && Object.keys(q.where ?? {}).join() === 'roundId'
+
+  function watch(page: Page) {
+    const subs: { query: Query; after: boolean }[] = []
+    const prints: Print[] = []
+    let afterReset = false
+    page.on('websocket', (ws) => {
+      ws.on('framesent', (f) => {
+        const m = parse(f.payload)
+        const query = m?.payload?.query as Query | undefined
+        if (m?.type === 'core.subscribe' && query) subs.push({ query, after: afterReset })
+      })
+      ws.on('framereceived', (f) => {
+        const m = parse(f.payload)
+        const record = m?.payload?.record as Print | undefined
+        if (m?.type === 'core.record_change' && m.payload?.collection === 'tape' && record?.data) prints.push(record)
+      })
+    })
+    return {
+      reset: () => {
+        afterReset = true
+        prints.length = 0
+      },
+      prints,
+      /** Subscribe frames per query fingerprint, before or after reset. */
+      counts: (after: boolean, pick: (q: Query) => boolean) => {
+        const out: Record<string, number> = {}
+        for (const s of subs) {
+          if (s.after !== after || !pick(s.query)) continue
+          const key = fingerprint(s.query)
+          out[key] = (out[key] ?? 0) + 1
+        }
+        return out
+      },
+      shellRoundIds: () => subs.filter((s) => isShellTape(s.query)).map((s) => String(s.query.where?.roundId)),
+    }
+  }
+
+  const total = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0)
+  /** Same order as buildTape: time, then batch, then record id, newest first. */
+  const newerFirst = (x: Print, y: Print) =>
+    y.data.at - x.data.at || y.data.batchId - x.data.batchId || y.recordId.localeCompare(x.recordId)
+  const newest = (list: Print[]) => [...list].sort(newerFirst)[0] ?? null
+
+  for (const path of ['/home', '/trade']) {
+    test(`${path}: shell feeds subscribe once, not once per change, and the tape leads with the newest print`, async ({
+      users,
+    }) => {
+      const [a] = await users(1)
+      const frames = watch(a.page)
+      // The exchange prints while a terminal is open, so keep one open beside /home.
+      const trade = path === '/home' ? await a.page.context().newPage() : a.page
+      await trade.goto('/trade')
+      // Prints flow only during a live round: wait for one with 45 s+ left (the window is ~32 s).
+      const terminal = trade.getByTestId('trade-terminal')
+      await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 30_000 })
+      await expect
+        .poll(
+          async () =>
+            (await terminal.getAttribute('data-phase')) === 'live' &&
+            Number(await terminal.getAttribute('data-phase-ends-at')) - Date.now() > 45_000,
+          { timeout: 200_000, intervals: [1_000] },
+        )
+        .toBe(true)
+      if (path === '/home') await a.page.goto('/home')
+      const tapeRows = a.page.getByTestId('tape').locator('[data-testid="tape-row"]')
+      await expect(tapeRows.first()).toBeVisible({ timeout: 30_000 })
+      await a.page.waitForTimeout(2_000)
+
+      // Not vacuous: the shell tape subscription was seen, with its expected shape.
+      const before = frames.counts(false, isShellTape)
+      expect(total(before), `shell tape subscribe seen before reset: ${JSON.stringify(before)}`).toBeGreaterThanOrEqual(1)
+
+      frames.reset()
+      await a.page.waitForTimeout(30_000)
+      expect(frames.prints.length, 'needs live prints during the window').toBeGreaterThanOrEqual(5)
+
+      const shellTape = frames.counts(true, isShellTape)
+      const news = frames.counts(true, (q) => q.collection === 'news')
+      const portfolios = frames.counts(true, (q) => q.collection === 'portfolios')
+      const chartTape = frames.counts(true, (q) => q.collection === 'tape' && !isShellTape(q))
+      const summary = JSON.stringify({ prints: frames.prints.length, shellTape, news, portfolios, chartTape })
+      test.info().annotations.push({ type: 'new subscribe frames in 30s', description: summary })
+      console.log(`[subscribe frames, ${path}, 30s] ${summary}`)
+
+      // Near zero: at most one new subscribe per collection (a round rollover
+      // during the window legitimately subscribes to the new round once).
+      expect(total(shellTape), summary).toBeLessThanOrEqual(1)
+      expect(total(news), summary).toBeLessThanOrEqual(1)
+      // On /trade, portfolios are queried by trade.tsx (ui-trading), so only /home is ours.
+      if (path === '/home') expect(total(portfolios), summary).toBeLessThanOrEqual(1)
+
+      // F3: the first tape row is the newest print of the shell's round seen on the wire.
+      const roundId = frames.shellRoundIds().at(-1)
+      await expect(async () => {
+        const top = newest(frames.prints.filter((p) => p.data.roundId === roundId))
+        expect(top, `prints for round ${roundId}`).not.toBeNull()
+        await expect(tapeRows.first()).toHaveAttribute('data-record-id', top!.recordId, { timeout: 500 })
+      }).toPass({ timeout: 10_000, intervals: [100, 250, 500] })
+    })
+  }
+})
+
 test.describe('trade terminal (signed in)', () => {
   const usable = loadAllTestAccounts().length
   test.skip(usable < 1, `Needs 1 usable test account, found ${usable}.`)

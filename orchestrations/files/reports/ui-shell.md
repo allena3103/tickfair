@@ -2,6 +2,65 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: review of evaluator run 3 fixes (FAIL, F1-F4 fixed)
+
+The fix commit is `7243698`.
+
+| # | Finding | Fix |
+|---|---------|-----|
+| F1 | The PERF e2e grouped by subscription id, which is vacuous if the SDK re-subscribes with fresh ids, and its shell-tape filter could match nothing. | Every `core.subscribe` frame is now counted by query fingerprint (collection + where + orderBy + orderDir + limit), whatever its id. The shell tape is identified as a `tape` query whose `where` is exactly `{roundId}` (the chart's adds `ticker`). Before the reset, the test asserts at least one shell-tape subscribe was seen. After the reset, it allows at most one new subscribe in 30 s for each of shell tape, news, and portfolios (portfolios on `/home` only), which leaves room for a round rollover. The test now first waits for a live round with 45 s or more left, from the terminal's `data-phase` and `data-phase-ends-at`, so the window always has prints. That fixed a `/home` run that saw only 2 prints because the round was ending. |
+| F2 | `RoundsList` imported `plural` from ui-trading's `trading/logic`. | New `formatCount(n, one, many)` in `src/theme/format.ts`, with a unit test (1, 0, 2, 1,200), used by `RoundsList`. The BUG-2 view test still covers "1 trader". |
+| F3 | The limit-less tape query wasn't checked to show the newest print first. | Tape rows now carry `data-record-id` and `data-at`. The e2e collects the tape records from `core.record_change` frames, takes the newest print of the shell's round in `buildTape` order (time, then batch, then id), and asserts the first tape row has that record id (`toPass`, up to 10 s). |
+| F4 | The `resubscribesOnChange` test was tautological. | Removed the test and the export. The query-builder test now asserts each builder's exact output: an equality `where` only, with no orderBy, orderDir, or limit. |
+
+**Proof:** with the pre-fix Tape, NewsFeed, and home restored temporarily, the new e2e fails on both pages. The shell-tape fingerprint `["tape",{"roundId":…},"at","desc",60]` re-subscribed 27 times on `/home` (27 prints) and 26 times on `/trade` (26 prints). With the fix, both pages send 0 new shell subscribes, the newest-print check passes, and the chart's query (ui-trading) still re-sends about once per print (28–29).
+
+**Checks on `7243698`:**
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- Unit: 17 files, 275 tests passed (one removed, one added).
+- `npx deepspace test run e2e --port 5185`, two runs: both exit 0, with 33 passed and 1 skipped (ui-trading's opt-in screenshot test).
+
+**Files touched:**
+- **Mine:** `src/theme/{format.ts,format.test.ts}`, `src/components/feed/{RoundsList.tsx,Tape.tsx,queries.ts,logic.test.ts}`.
+- **`tests/smoke.spec.ts`:** only the "feed subscriptions" describe.
+
+## Update: evaluator run 3 items (BUG-2, PERF)
+
+I rebased onto `agent/exchange` `e6cc3e4`. It was a fast-forward, since my earlier commits were already merged. The fix commit is `4fbf349`.
+
+**BUG-2:** `/rounds` rows now say "1 trader" and "2 traders". The fix is in `RoundsList.tsx` and reuses the existing `plural()` from `trading/logic.ts`. A new unit case in `views.test.tsx` asserts `1 trader` and the absence of `1 traders`.
+
+**PERF, root cause:** the options were not being rebuilt on each render. The SDK keys `useQuery` on `JSON.stringify(options)`, and all its scope callbacks are stable. The real cause is in the SDK's `RecordSocket`: on every `core.record_change`, any subscription to that collection with `orderBy` or `limit` gets a full `core.subscribe` re-sent under the same subscription id. So an ordered or limited `tape` query re-subscribes once per print, and an ordered or limited `portfolios` query once per fill.
+
+**PERF, fix:** new `src/components/feed/queries.ts` (`tapeQuery`, `newsQuery`, `portfoliosQuery`, and `resubscribesOnChange`, which mirrors the SDK rule).
+- `Tape`, `NewsFeed`, and home's portfolios query now use only an equality `where` (`roundId`, plus `ticker` for Tape). The SDK then applies each change locally. Round scoping already bounds them: at most about 900 prints per ticker per round, and the server returns the whole match when there's no limit. Sorting and slicing happen on the client, as before.
+- The options are also memoized with `useMemo`.
+- `useCurrentRound` and `/rounds` keep `orderBy` + `limit`, because rounds accumulate forever. A round is written only at its start and end, so they re-send about twice per round. Their options are now module constants.
+
+**PERF, proof:**
+- Unit (`logic.test.ts` › "feed subscriptions"): every hot-feed query has `resubscribesOnChange === false`, and the rule matches the SDK.
+- e2e (`smoke.spec.ts` › "feed subscriptions"): counts `core.subscribe` frames sent over 30 s of live prints, on `/home` (with a `/trade` tab open, since prints run only while a terminal is open) and on `/trade`.
+
+| Run | Prints in 30 s | ui-shell Tape | News | Portfolios (home) | Chart tape (ui-trading) |
+|-----|----------------|---------------|------|-------------------|-------------------------|
+| Old queries, `/home` | 25 | **25** | 0 | 0 | — |
+| Old queries, `/trade` | 27 | **27** | 0 | 0 | 27 |
+| Fixed, `/home` | 25 | **0** | 0 | 0 | — |
+| Fixed, `/trade` | 21 | **0** | 0 | 0 | 21 |
+
+Against the old queries the new test fails (25 > 1); against the fix it passes.
+
+**For the director and ui-trading:** the remaining per-print re-subscribe on `/trade` is ui-trading's `PriceChart.tsx` (`tape`, `orderBy: 'at'`, `limit: 300`). It's about 1 per print, which accounts for roughly half of the original 1,335 frames. `trade.tsx` has the same pattern on `fills` (`orderBy` + `limit`, re-sent per fill) and on `portfolios` and `orders` (`limit`, re-sent per change). The fix is the same: an equality-only `where`, then sort and slice on the client. Those files aren't mine, so I didn't touch them. The e2e logs the chart's count but doesn't assert on it.
+
+**Checks on `4fbf349`:**
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- Unit: 17 files, 275 tests passed.
+- `npx deepspace test run e2e --port 5185`, two runs: both exit 0, with 33 passed and 1 skipped (ui-trading's opt-in screenshot test).
+
+**Files touched:**
+- **Mine:** `src/components/feed/{queries.ts (new),Tape.tsx,NewsFeed.tsx,RoundsList.tsx,logic.test.ts,views.test.tsx}`, `src/components/shell/useCurrentRound.ts`, `src/pages/(app)/{home.tsx,rounds.tsx}`.
+- **`tests/smoke.spec.ts`:** added the "feed subscriptions" describe only, for the frame count you asked for.
+
 ## Update: evaluator fixes (BUG-1, BUG-4, BUG-5)
 
 I rebased `agent/ui-shell` onto `agent/exchange` (`5d96efe`, everything merged including ui-trading). It was a fast-forward with no conflicts. The fix commit is `9476861`. BUG-2 is a known limitation and was left alone, as instructed.
@@ -172,4 +231,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `5d96efe`. The final code commit is `9476861` (the evaluator fixes), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `e6cc3e4`. The final code commit is `7243698` (reviewer F1-F4), and the report commit is the next one, on top of it.

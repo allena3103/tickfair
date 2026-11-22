@@ -222,4 +222,27 @@ describe('RoundsView', () => {
     expect(out).toContain('No human traders')
     expect(out).toContain('0 traders')
   })
+
+  it('says "1 trader", not "1 traders" (BUG-2)', () => {
+    const out = html(
+      <RoundsView
+        status="ready"
+        rounds={[
+          {
+            id: 'r',
+            startsAt: 0,
+            endsAt: 1,
+            status: 'done',
+            winnerId: 'u1',
+            standings: [
+              { userId: 'bot:mm', displayName: 'MM', equityCents: 1 },
+              { userId: 'u1', displayName: 'Ana', equityCents: 10_000_000 },
+            ],
+          },
+        ]}
+      />,
+    )
+    expect(out).toContain('1 trader<')
+    expect(out).not.toContain('1 traders')
+  })
 })

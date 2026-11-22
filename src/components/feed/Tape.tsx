@@ -11,6 +11,7 @@ import { Delta } from '@/theme/Delta'
 import { formatPrice, formatQty, formatTimeOfDay } from '@/theme/format'
 import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurrentRound'
 import { buildTape, type TapeRow } from './tapeRows'
+import { tapeQuery } from './queries'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
 interface TapeProps {
@@ -23,9 +24,9 @@ interface TapeProps {
 
 export function Tape({ ticker, roundId, limit = 60, className }: TapeProps) {
   const feed = resolveFeedRound(roundId, useCurrentRound())
-  const where: Record<string, unknown> = { roundId: feed.roundId }
-  if (ticker) where.ticker = ticker
-  const query = useQuery<TapeRecord>('tape', { where, orderBy: 'at', orderDir: 'desc', limit })
+  // No orderBy/limit: those make the SDK re-subscribe on every print (see queries.ts).
+  const options = useMemo(() => tapeQuery(feed.roundId, ticker), [feed.roundId, ticker])
+  const query = useQuery<TapeRecord>('tape', options)
   const rows = useMemo(
     () => buildTape(query.records.map((r) => ({ id: r.recordId, data: r.data })), ticker).slice(0, limit),
     [query.records, ticker, limit],
@@ -85,7 +86,7 @@ export function TapeView({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} data-testid="tape-row" className="border-t border-border">
+              <tr key={r.id} data-testid="tape-row" data-record-id={r.id} data-at={r.at} className="border-t border-border">
                 <td className="px-3 py-1 text-muted-foreground">{formatTimeOfDay(r.at)}</td>
                 {!ticker && <td className="py-1">{r.ticker}</td>}
                 <td className="py-1 text-right">{formatPrice(r.clearCents)}</td>

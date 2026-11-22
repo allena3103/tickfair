@@ -3,6 +3,7 @@ import { START_CASH_CENTS, type PortfolioRecord, type TapeRecord } from '@/share
 import { equityOf, rankPortfolios } from './rank'
 import { buildTape } from './tapeRows'
 import { countOnFloor, mergeOnline } from './onlineList'
+import { newsQuery, portfoliosQuery, tapeQuery } from './queries'
 import { roundPhase } from '../shell/RoundStatus'
 import { NO_ROUND, feedStatus, resolveFeedRound, type CurrentRound } from '../shell/useCurrentRound'
 
@@ -128,6 +129,20 @@ describe('online list', () => {
       heartbeat: [],
     })
     expect(me).toMatchObject({ isSelf: true, onFloor: false, ticker: null })
+  })
+})
+
+describe('feed subscriptions (PERF)', () => {
+  it('hot feeds use only an equality where (no orderBy, orderDir, or limit)', () => {
+    expect(tapeQuery('r1')).toEqual({ where: { roundId: 'r1' } })
+    expect(tapeQuery('r1', 'ORBT')).toEqual({ where: { roundId: 'r1', ticker: 'ORBT' } })
+    expect(tapeQuery(NO_ROUND)).toEqual({ where: { roundId: NO_ROUND } })
+    expect(newsQuery('r1')).toEqual({ where: { roundId: 'r1' } })
+    expect(portfoliosQuery('r1')).toEqual({ where: { roundId: 'r1' } })
+  })
+
+  it('same inputs give equal options (stable subscription key)', () => {
+    expect(JSON.stringify(tapeQuery('r1', 'CURA'))).toBe(JSON.stringify(tapeQuery('r1', 'CURA')))
   })
 })
 
