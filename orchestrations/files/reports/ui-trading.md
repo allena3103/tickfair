@@ -1,4 +1,25 @@
-# Report: ui-trading (wave 2), review round 1
+# Report: ui-trading (wave 2), review round 2
+
+**Review round 2, on code commit `1206662`.** Every check was rerun by me on that commit.
+
+| Item | Result |
+|------|--------|
+| **R2-1** | Both live-order queries in `trade.tsx` are now `where: { roundId, status, userId }`, so the limit is spent only on my own live rows. The page is behind the sign-in gate, so `userId` is always set; if it is ever missing, the query uses `NO_ROUND`, which matches nothing. The e2e resting-order and cancel steps still pass on the real RecordRoom. |
+| **R2-2** | `formatCents(cents, { whole: true })` rounds (`Math.round`, `src/theme/format.ts:16`); it does not truncate. So the collab tolerance stays at ≤ $0.50, which is correct for rounding. `data-testid="my-equity"` exists (`src/components/trading/MyOrders.tsx:171`) and the collab test already reads it. |
+| **R2-3** | Confirmed in `src/server/exchange/core.ts`. `closeRound` writes only `{ phase: 'break', phaseEndsAt }` to meta (line 401) and emits `ex.phase` with `m.roundId` (line 403). `snapshot()` sends `m.roundId` (line 283). A new id is only made in `openRound` (line 326), when the break ends. So during the break, both messages carry the **just-closed** round, which is the id `finishedRound(records, stream.roundId)` looks up. New test in `views.test.tsx`: `finishedRound` over a closed round and an older round, rendered through `RoundBreakOverlay`. It asserts exactly 2 `final-standing` rows in equity order (Ana, Bo), the bot filtered out, the older round ignored, and no "Tallying". |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 262 passed (262)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `27 passed`, `1 skipped` (opt-in screenshots), 48.4 s |
+
+Files changed in this round: `src/pages/(app)/(protected)/trade.tsx` and `src/components/trading/views.test.tsx`, both in my ownership list. No open requests for the director.
+
+---
+
+## Review round 1
 
 **Review round 1 fixes, on code commit `e48f195`.** Every check was rerun by me on that commit.
 
@@ -119,5 +140,6 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Review round 1 code commit: `e48f195`. This report is committed on top of it.
+- Review round 2 code commit: `1206662`. This report is committed on top of it.
+- Review round 1 code commit: `e48f195`.
 - Round 2 code commit: `c792ecb`, rebased on `agent/exchange` at `cfc6d6d`. (Round 1 code commit was `462f1a4`, before the rebase.)
