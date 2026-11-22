@@ -20,7 +20,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
 | news | 1 | **merged** | – | – | – | |
 | ui-shell | 1 | **merged** | – | – | – | |
-| exchange-runtime | 2 | paused (usage limit; resumes 23:31) | – | – | – | |
+| exchange-runtime | 2 | building (resumed 23:31) | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
 | evaluator | final | not started | – | – | – | |
