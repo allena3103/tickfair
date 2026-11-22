@@ -11,7 +11,7 @@ Built on [DeepSpace](https://docs.deep.space) by directing a team of coding agen
 
 ## Try it
 
-**Live:** `https://tickfair.app.space` (once deployed; see [Status](#status)).
+**Live:** <https://tickfair.app.space>
 
 1. Open the landing page. Read "How it works" if you want the 30-second version.
 2. Click **Sign in to trade** and sign in with Google or GitHub.
@@ -124,7 +124,7 @@ I acted as the **director**. Each builder agent ran as its own Claude Code sessi
 - 18 of 18 acceptance criteria in the final full evaluator run (run 5), plus a clean targeted recheck (run 6);
 - one real AI headline generated and validated.
 
-Not yet deployed. `npx deepspace deploy` publishes it to `tickfair.app.space`. Production subrequest limits for the record-copying step haven't been measured yet (it is capped at 40 writes per batch).
+**Deployed** to <https://tickfair.app.space> with `npx deepspace deploy`. Checked in production with the two-trader browser tests run against the live URL: a real crossing trade fills for both traders, the tape and leaderboard agree, open orders stay private, presence works, and each browser shows its own account. Production subrequest limits for the record-copying step haven't been load-tested beyond that (it is capped at 40 writes per batch).
 
 **Known limitations**
 - If a trader closes one of two open tabs, they drop off the online list. This comes from the SDK's per-user presence.
