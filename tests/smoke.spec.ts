@@ -205,6 +205,90 @@ test.describe('presence', () => {
   })
 })
 
+/**
+ * PERF: the SDK re-sends a full core.subscribe for every ordered/limited
+ * subscription each time its collection changes. Count those frames for the
+ * ui-shell feeds over 30 s of live prints; each should subscribe once.
+ */
+test.describe('feed subscriptions', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 1, `Needs 1 usable test account, found ${usable}.`)
+  test.setTimeout(300_000)
+
+  type Frame = { type?: string; payload?: { subscriptionId?: string; query?: { collection?: string; where?: Record<string, unknown> } } }
+  const parse = (raw: string | Buffer): Frame | null => {
+    try {
+      return JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as Frame
+    } catch {
+      return null
+    }
+  }
+
+  function watch(page: Page) {
+    const sent: Frame[] = []
+    let tapeChanges = 0
+    page.on('websocket', (ws) => {
+      ws.on('framesent', (f) => {
+        const m = parse(f.payload)
+        if (m?.type === 'core.subscribe') sent.push(m)
+      })
+      ws.on('framereceived', (f) => {
+        const m = parse(f.payload) as { type?: string; payload?: { collection?: string } } | null
+        if (m?.type === 'core.record_change' && m.payload?.collection === 'tape') tapeChanges++
+      })
+    })
+    return {
+      reset: () => {
+        sent.length = 0
+        tapeChanges = 0
+      },
+      tapeChanges: () => tapeChanges,
+      /** Subscribe frames per subscription id for one collection, filtered by its where. */
+      perSub: (collection: string, pick: (where: Record<string, unknown>) => boolean = () => true) => {
+        const counts = new Map<string, number>()
+        for (const m of sent) {
+          const q = m.payload?.query
+          if (q?.collection !== collection || !pick(q.where ?? {})) continue
+          const id = m.payload?.subscriptionId ?? '?'
+          counts.set(id, (counts.get(id) ?? 0) + 1)
+        }
+        return [...counts.values()]
+      },
+    }
+  }
+
+  for (const path of ['/home', '/trade']) {
+    test(`${path}: tape, news, and portfolio feeds subscribe once, not once per change`, async ({ users }) => {
+      const [a] = await users(1)
+      const frames = watch(a.page)
+      // The exchange prints while a terminal is open, so keep one open beside /home.
+      if (path === '/home') await (await a.page.context().newPage()).goto('/trade')
+      await a.page.goto(path)
+      // Prints flow only during a live round; wait out a results break.
+      await expect(a.page.getByTestId('tape').locator('[data-testid="tape-row"]').first()).toBeVisible({ timeout: 200_000 })
+      await a.page.waitForTimeout(2_000)
+      frames.reset()
+      await a.page.waitForTimeout(30_000)
+
+      expect(frames.tapeChanges(), 'needs live prints during the window').toBeGreaterThanOrEqual(5)
+      // ui-shell's Tape queries the round without a ticker (the chart's query filters by ticker).
+      const tape = frames.perSub('tape', (w) => !('ticker' in w))
+      const news = frames.perSub('news')
+      const summary = JSON.stringify({
+        tapeChanges: frames.tapeChanges(),
+        shellTape: tape,
+        news,
+        portfolios: frames.perSub('portfolios'),
+        chartTape: frames.perSub('tape', (w) => 'ticker' in w),
+      })
+      test.info().annotations.push({ type: 'subscribe frames in 30s', description: summary })
+      console.log(`[subscribe frames, ${path}, 30s] ${summary}`)
+      for (const n of [...tape, ...news]) expect(n).toBeLessThanOrEqual(1)
+      if (path === '/home') for (const n of frames.perSub('portfolios')) expect(n).toBeLessThanOrEqual(1)
+    })
+  }
+})
+
 test.describe('trade terminal (signed in)', () => {
   const usable = loadAllTestAccounts().length
   test.skip(usable < 1, `Needs 1 usable test account, found ${usable}.`)

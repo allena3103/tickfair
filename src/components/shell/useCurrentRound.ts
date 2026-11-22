@@ -45,12 +45,14 @@ export function feedStatus(
   return { status: query.status, error: query.error }
 }
 
+/**
+ * Ordered + limited, because rounds accumulate. The SDK re-subscribes such a
+ * query on each rounds change, but a round is written only at start and end.
+ */
+const CURRENT_ROUND_QUERY = { orderBy: 'startsAt', orderDir: 'desc', limit: 1 } as const
+
 export function useCurrentRound(): CurrentRound {
-  const { records, status, error } = useQuery<RoundRecord>('rounds', {
-    orderBy: 'startsAt',
-    orderDir: 'desc',
-    limit: 1,
-  })
+  const { records, status, error } = useQuery<RoundRecord>('rounds', CURRENT_ROUND_QUERY)
   const round = latest(records)
   return { round, status, error }
 }

@@ -14,6 +14,7 @@ import { TICKERS, type PortfolioRecord, type Ticker, type TickerRecord } from '@
 import { Leaderboard } from '@/components/feed/Leaderboard'
 import { NewsFeed } from '@/components/feed/NewsFeed'
 import { OnlineTraders } from '@/components/feed/OnlineTraders'
+import { portfoliosQuery } from '@/components/feed/queries'
 import { Tape } from '@/components/feed/Tape'
 import { TICKER_INFO } from '@/components/shell/tickers'
 import { feedStatus, resolveFeedRound, useCurrentRound } from '@/components/shell/useCurrentRound'
@@ -40,10 +41,9 @@ export default function HomePage() {
   }, [bySymbol])
 
   // No round yet → NO_ROUND matches nothing, not every round's portfolios.
-  const portfolios = useQuery<PortfolioRecord>('portfolios', {
-    where: { roundId: round.roundId },
-    limit: 500,
-  })
+  // No limit: it would re-subscribe on every fill (see queries.ts).
+  const portfolioOptions = useMemo(() => portfoliosQuery(round.roundId), [round.roundId])
+  const portfolios = useQuery<PortfolioRecord>('portfolios', portfolioOptions)
   const portfolioData = useMemo(() => portfolios.records.map((r) => r.data), [portfolios.records])
   const board = feedStatus(round, portfolios)
 

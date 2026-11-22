@@ -3,6 +3,7 @@ import { START_CASH_CENTS, type PortfolioRecord, type TapeRecord } from '@/share
 import { equityOf, rankPortfolios } from './rank'
 import { buildTape } from './tapeRows'
 import { countOnFloor, mergeOnline } from './onlineList'
+import { newsQuery, portfoliosQuery, resubscribesOnChange, tapeQuery } from './queries'
 import { roundPhase } from '../shell/RoundStatus'
 import { NO_ROUND, feedStatus, resolveFeedRound, type CurrentRound } from '../shell/useCurrentRound'
 
@@ -128,6 +129,25 @@ describe('online list', () => {
       heartbeat: [],
     })
     expect(me).toMatchObject({ isSelf: true, onFloor: false, ticker: null })
+  })
+})
+
+describe('feed subscriptions (PERF)', () => {
+  it('hot feeds use only an equality where, so the SDK never re-subscribes them on a change', () => {
+    for (const q of [tapeQuery('r1'), tapeQuery('r1', 'ORBT'), newsQuery('r1'), portfoliosQuery('r1')]) {
+      expect(resubscribesOnChange(q)).toBe(false)
+    }
+    expect(tapeQuery('r1', 'ORBT')).toEqual({ where: { roundId: 'r1', ticker: 'ORBT' } })
+    expect(tapeQuery(NO_ROUND)).toEqual({ where: { roundId: NO_ROUND } })
+  })
+
+  it('the rule matches the SDK: ordered or limited queries re-subscribe', () => {
+    expect(resubscribesOnChange({ orderBy: 'at' })).toBe(true)
+    expect(resubscribesOnChange({ limit: 60 })).toBe(true)
+  })
+
+  it('same inputs give equal options (stable subscription key)', () => {
+    expect(JSON.stringify(tapeQuery('r1', 'CURA'))).toBe(JSON.stringify(tapeQuery('r1', 'CURA')))
   })
 })
 

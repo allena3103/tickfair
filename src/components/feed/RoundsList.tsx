@@ -8,6 +8,7 @@ import { ChevronDown, History, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { START_CASH_CENTS, type RoundRecord, type Standing } from '@/shared/contracts'
 import { isBotId } from '@/components/shell/tickers'
+import { plural } from '@/components/trading/logic'
 import { Delta } from '@/theme/Delta'
 import { formatCents, formatClock } from '@/theme/format'
 import { FeedEmpty, FeedError, FeedSkeleton } from './FeedPanel'
@@ -109,7 +110,7 @@ function RoundRow({ round, currentUserId }: { round: RoundItem; currentUserId?: 
           )}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
-          {formatClock(round.endsAt - round.startsAt)} · {standings.length} traders
+          {formatClock(round.endsAt - round.startsAt)} · {plural(standings.length, 'trader', 'traders')}
         </span>
         <ChevronDown
           aria-hidden

@@ -11,6 +11,7 @@ import { Delta } from '@/theme/Delta'
 import { formatPrice, formatQty, formatTimeOfDay } from '@/theme/format'
 import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurrentRound'
 import { buildTape, type TapeRow } from './tapeRows'
+import { tapeQuery } from './queries'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
 interface TapeProps {
@@ -23,9 +24,9 @@ interface TapeProps {
 
 export function Tape({ ticker, roundId, limit = 60, className }: TapeProps) {
   const feed = resolveFeedRound(roundId, useCurrentRound())
-  const where: Record<string, unknown> = { roundId: feed.roundId }
-  if (ticker) where.ticker = ticker
-  const query = useQuery<TapeRecord>('tape', { where, orderBy: 'at', orderDir: 'desc', limit })
+  // No orderBy/limit: those make the SDK re-subscribe on every print (see queries.ts).
+  const options = useMemo(() => tapeQuery(feed.roundId, ticker), [feed.roundId, ticker])
+  const query = useQuery<TapeRecord>('tape', options)
   const rows = useMemo(
     () => buildTape(query.records.map((r) => ({ id: r.recordId, data: r.data })), ticker).slice(0, limit),
     [query.records, ticker, limit],

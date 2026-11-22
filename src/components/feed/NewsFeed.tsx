@@ -12,6 +12,7 @@ import { formatRelativeTime } from '@/theme/format'
 import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurrentRound'
 import { useNow } from '../shell/useNow'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
+import { newsQuery } from './queries'
 
 /** Sort key for a timestamp that may be missing or malformed (sorts last). */
 function timeOf(v: unknown): number {
@@ -28,12 +29,9 @@ export interface NewsItem extends NewsRecord {
 
 export function NewsFeed({ roundId, limit = 30, className }: { roundId?: string; limit?: number; className?: string }) {
   const feed = resolveFeedRound(roundId, useCurrentRound())
-  const query = useQuery<NewsRecord>('news', {
-    where: { roundId: feed.roundId },
-    orderBy: 'publishedAt',
-    orderDir: 'desc',
-    limit,
-  })
+  // No orderBy/limit (see queries.ts); sorted and sliced below.
+  const options = useMemo(() => newsQuery(feed.roundId), [feed.roundId])
+  const query = useQuery<NewsRecord>('news', options)
   const items = useMemo(
     () =>
       query.records
