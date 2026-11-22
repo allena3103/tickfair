@@ -138,18 +138,24 @@ export class ExchangeCore {
    * room awake.
    */
   wake(now: number, activity = true): Msgs {
-    return this.guarded(now, () => {
+    const msgs = this.guarded(now, () => {
       // A fresh room always gets a lastActivityAt, even when a shock (not activity) woke it,
       // so the idle clock starts now instead of never.
       const fresh = !readMeta(this.sql)
       if (activity || fresh) writeMeta(this.sql, { lastActivityAt: now })
-      const msgs = fresh ? this.openRound(now) : this.advancePhases(now, true)
-      const m = this.mustMeta()
-      if (m.phase === 'live' && now - m.nextBatchAt > RESUME_AFTER_MS) {
-        writeMeta(this.sql, { nextBatchAt: now + BATCH_MS })
-      }
-      return msgs
+      return fresh ? this.openRound(now) : this.closeIfDue(now)
     })
+    msgs.push(
+      ...this.guarded(now, () => {
+        const out = this.openIfDue(now, true)
+        const m = this.mustMeta()
+        if (m.phase === 'live' && now - m.nextBatchAt > RESUME_AFTER_MS) {
+          writeMeta(this.sql, { nextBatchAt: now + BATCH_MS })
+        }
+        return out
+      }),
+    )
+    return msgs
   }
 
   /**
@@ -159,7 +165,8 @@ export class ExchangeCore {
    */
   tick(now: number, idle: boolean): Msgs {
     if (!readMeta(this.sql)) return []
-    const msgs = this.guarded(now, () => this.advancePhases(now, !idle))
+    const msgs = this.guarded(now, () => this.closeIfDue(now))
+    msgs.push(...this.guarded(now, () => this.openIfDue(now, !idle)))
     const m = this.mustMeta()
     if (!idle && m.phase === 'live' && !m.halted && now >= m.nextBatchAt - EARLY_MS) {
       msgs.push(...this.guarded(now, () => this.runBatch(now)))
@@ -311,14 +318,22 @@ export class ExchangeCore {
   // Rounds
   // -------------------------------------------------------------------------
 
-  /** Close or open rounds whose phase time has passed. Inside a transaction. */
-  private advancePhases(now: number, mayOpen: boolean): Msgs {
-    const msgs: Msgs = []
+  /*
+   * Closing a round and opening the next are separate guarded steps (separate
+   * transactions), so a failure while opening can never roll back, or
+   * overwrite, the results of the round that just closed.
+   */
+
+  /** Close the live round if its time is up. Inside a transaction. */
+  private closeIfDue(now: number): Msgs {
     const m = this.mustMeta()
-    if (m.phase === 'live' && now >= m.phaseEndsAt) msgs.push(...this.closeRound(now))
-    const after = this.mustMeta()
-    if (mayOpen && after.phase === 'break' && now >= after.phaseEndsAt) msgs.push(...this.openRound(now))
-    return msgs
+    return m.phase === 'live' && now >= m.phaseEndsAt ? this.closeRound(now) : []
+  }
+
+  /** Open the next round if the break is over. Inside a transaction. */
+  private openIfDue(now: number, mayOpen: boolean): Msgs {
+    const m = this.mustMeta()
+    return mayOpen && m.phase === 'break' && now >= m.phaseEndsAt ? this.openRound(now) : []
   }
 
   private openRound(now: number): Msgs {
@@ -409,6 +424,16 @@ export class ExchangeCore {
    * because the next round wipes every account.
    */
   private halt(now: number, detail: string): Msgs {
+    const current = this.mustMeta()
+    if (current.phase !== 'live') {
+      // Failed while opening the next round. The previous round is already
+      // closed and published: leave its record alone, keep the break, and
+      // retry the open after another break.
+      const retryAt = now + this.d.durations.breakMs
+      this.d.logError(`[exchange] round open failed, retrying at ${retryAt}: ${detail}`)
+      this.d.txn(() => writeMeta(this.sql, { phaseEndsAt: retryAt }))
+      return [{ type: 'ex.phase', roundId: current.roundId, phase: 'break', phaseEndsAt: retryAt }]
+    }
     this.d.logError(`[exchange] INVARIANT ${detail}`)
     return this.d.txn(() => {
       const m = this.mustMeta()

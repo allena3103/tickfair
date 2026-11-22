@@ -8,14 +8,14 @@ Branch `agent/exchange-runtime`, rebased onto `agent/exchange` at `ef0403b` (ui-
 
 ## 1. Built and verified
 
-All commands run on the final commit, port 5186. Review round 1 fixes are in §8, round 2 in §9.
+All commands run on the final commit, port 5186. Review round 1 fixes are in §8, round 2 in §9, and the money-path review finding in §10.
 
 | Item | Proof | Result |
 |---|---|---|
 | Typecheck | `npx tsc --noEmit` | exit 0, no output |
 | Lint | `npm run lint` (eslint .) | exit 0, no output |
-| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 230 passed (230)` |
-| E2E | `npx deepspace test run --port 5186` (smoke + api), twice on the final code (round 2) | each exit 0: `21 passed (57.5s)`, `21 passed (52.0s)`; `1 skipped` each. Assumes default round durations: no `EXCHANGE_ROUND_*` overrides in `.dev.vars` (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
+| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 232 passed (232)` |
+| E2E | `npx deepspace test run --port 5186` (smoke + api), on the final code (money-path fix) | exit 0: `21 passed (44.8s)`, `1 skipped` (earlier: twice in round 2, three times in round 1, all green). Assumes default round durations: no `EXCHANGE_ROUND_*` overrides in `.dev.vars` (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
 | Build | `npx vite build` | exit 0, `✓ built`; the worker bundle does not contain `node:sqlite` |
 | SQLite tables `meta, accounts, holdings, book, batches, fundamentals, bots` (+ `shocks` for newsId dedupe, `mirror` outbox) created on construct | `exchange/sql.ts`; every test constructs a fresh room | pass |
 | Intake: lazy enroll with `START_CASH_CENTS`, `rate_limited` at `MAX_ORDERS_PER_BATCH` per trader per batch, `checkAndReserve`, server `orderId` (`o-<uuid>`), current `batchId`, `PlaceOrderData` | core.test `intake` (6 cases + 8 reject codes); api.spec `typed rejections…`, `a valid order returns orderId and batchId…` | pass |
@@ -127,7 +127,7 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
 
 ## 7. Branch and commit
 
-`agent/exchange-runtime`. Review round 2 code at `cff53c1` (round 1 `88fc4c1`, first pass `18a8152`); this report is updated in the commit right after it (the branch head). Rebased on `ef0403b`; `agent/exchange` has since gained `b19953a` (PROGRESS only), so no conflicts are expected.
+`agent/exchange-runtime`, rebased onto `agent/exchange` at `161fae3` (which already holds my merged work and the `bad_request` contract change; the rebase was a fast-forward with no conflicts). Money-path fix at `64bd3a5`; this report is updated in the commit right after it (the branch head). Earlier: round 2 `cff53c1`, round 1 `88fc4c1`, first pass `18a8152`.
 
 ## 8. Review round 1 fixes
 
@@ -167,4 +167,33 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
   - `npm run lint`: exit 0.
   - Unit (`test run unit --port 5186`): 230 of 230 passed.
   - E2E (`test run --port 5186`) ×2: 21 passed and 1 skipped each time, all exit 0.
+  - `.dev.vars` had no `EXCHANGE_ROUND_*` lines.
+
+## 10. Money-path review finding (minor): a failed round open overwrote the closed round
+
+- **Rebase.**
+  - `agent/exchange-runtime` was rebased onto `agent/exchange` (`161fae3`). It fast-forwarded with no conflicts.
+  - Nothing in my files used the removed `ShockResult` alias, and typecheck is clean against the new contract.
+- **The bug.**
+  - `guarded()` called `halt()` for any throw. A throw from `openRound()` at break end reached `halt()` while meta still described the previous, already-closed round.
+  - `halt()` then re-enqueued `rounds/<oldRoundId>` with empty standings and no winner, overwriting a correctly finished round's published results.
+  - A related case: on a stale wake, the close and the open ran in one transaction. An open failure therefore also rolled back the close, and `halt()` then published the overdue round with no standings.
+- **Fix** (`src/server/exchange/core.ts`).
+  - `halt()` only cancels orders and rewrites the `rounds` record when meta's phase is `live`.
+    - For a failure during the break, it touches no record.
+    - It logs `[exchange] round open failed, retrying at <t>: <reason>` instead of an INVARIANT line.
+    - It sets `phaseEndsAt = now + breakMs`, so the next tick retries `openRound()`.
+    - It sends `ex.phase` (break, new `phaseEndsAt`), so client countdowns stay right.
+  - `tick()` and `wake()` now run "close the round if due" and "open the next if due" as two separate guarded steps (two transactions). A failure while opening can no longer roll back or overwrite a close that already happened. `advancePhases` was replaced by `closeIfDue` / `openIfDue`.
+- **Tests** (core.test `a failure while opening the next round`; a one-shot throw is injected through `newId`, which `openRound` calls first). Both tests fail on the previous code and pass now.
+  - **At break end:**
+    - The closed round's queued `rounds` record (done, 1 standing, winner userA) is byte-for-byte unchanged after the failed open and after the successful retry.
+    - The failed tick returns only the break `ex.phase` with `phaseEndsAt = now + breakMs`, and logs one `round open failed` line and no INVARIANT. Meta stays on the old round, in its break, not halted.
+    - Nothing opens before the retry time. The tick at the retry time opens a new live round.
+  - **On a stale wake:** the overdue round still closes with its standings and winner, the open is retried after a break, and the next tick opens a round.
+- **Checks on the final code:**
+  - `npx tsc --noEmit`: exit 0.
+  - `npm run lint`: exit 0.
+  - Unit (`test run unit --port 5186`): 232 of 232 passed.
+  - E2E (`test run --port 5186`): exit 0, 21 passed and 1 skipped.
   - `.dev.vars` had no `EXCHANGE_ROUND_*` lines.
