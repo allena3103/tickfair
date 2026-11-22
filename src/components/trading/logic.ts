@@ -276,3 +276,8 @@ export function finishedRound<T extends { status: string }>(
   const r = records.find((x) => x.recordId === roundId)
   return r && r.data.status === 'done' ? r.data : null
 }
+
+/** "1 batch", "2 batches", "1,200 batches". */
+export function plural(n: number, one: string, many: string): string {
+  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+}

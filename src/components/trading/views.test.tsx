@@ -78,6 +78,11 @@ describe('PriceChartView', () => {
     expect(out).toContain('<path')
     expect(out).toContain('+2.00%')
   })
+  it('says "1 batch" for a single point (BUG-5a)', () => {
+    const one = html(<PriceChartView ticker="ORBT" lastCents={1_000} openCents={1_000} status="ready" points={[{ batchId: 1, priceCents: 1_000 }]} />)
+    expect(one).toContain('>1 batch<')
+    expect(one).not.toContain('1 batches')
+  })
 })
 
 describe('BatchClock and round break', () => {

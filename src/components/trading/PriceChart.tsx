@@ -12,7 +12,7 @@ import { NO_ROUND } from '@/components/shell/useCurrentRound'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from '@/components/feed/FeedPanel'
 import { Delta } from '@/theme/Delta'
 import { formatPrice } from '@/theme/format'
-import { chartPoints, linePath, type ChartPoint } from './logic'
+import { chartPoints, linePath, plural, type ChartPoint } from './logic'
 
 const W = 600
 const H = 200
@@ -81,7 +81,7 @@ export function PriceChartView({
     <FeedPanel
       testId="price-chart"
       title={`${ticker} · ${TICKER_INFO[ticker].name}`}
-      meta={points.length > 0 ? `${points.length} batches` : undefined}
+      meta={points.length > 0 ? plural(points.length, 'batch', 'batches') : undefined}
       className={className}
     >
       <div className="flex items-baseline gap-3 px-3 pt-3">
@@ -107,7 +107,7 @@ export function PriceChartView({
             preserveAspectRatio="none"
             className="h-44 w-full lg:h-52"
             role="img"
-            aria-label={`${ticker} price, ${points.length} batches, last ${last ? formatPrice(last) : 'unknown'}`}
+            aria-label={`${ticker} price, ${plural(points.length, 'batch', 'batches')}, last ${last ? formatPrice(last) : 'unknown'}`}
           >
             {[0.25, 0.5, 0.75].map((f) => (
               <line key={f} x1={0} x2={W} y1={H * f} y2={H * f} className="stroke-border" strokeWidth={1} vectorEffect="non-scaling-stroke" />
