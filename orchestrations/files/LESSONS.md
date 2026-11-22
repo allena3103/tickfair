@@ -35,3 +35,10 @@ Every builder reads this before starting. The director adds entries as they come
 20. **Current round:** `useCurrentRound` picks the newest `rounds` record. Feeds use the `'__no_round__'` sentinel when no round resolves, so they never query every round.
 21. **Flaky tests:** `locator.isVisible({ timeout })` ignores its timeout. Use `waitFor` or web-first `expect(...).toBeVisible()`.
 22. **No paid LLM calls on dev/test servers** unless `NEWS_LLM_IN_DEV=true`. Tests never set it.
+
+## From exchange-runtime (wave 2)
+
+23. **`portfolios.cashCents` is total cash**, including cash reserved for open buys. It is not the same as "available to spend". To get available cash, subtract the reserved cost of your open buy orders (`orders` with status open or partial: (qty − filledQty) × limitCents).
+24. **`ex.batch.batchId` is the batch now taking orders.** Each print carries the batch it cleared in.
+25. **e2e tests must not depend on wall-clock round phase.** Before trading, wait for `phase === 'live'` (until `phaseEndsAt` + 1s), and recheck `roundId` before asserting.
+26. **Round-length overrides** for local runs: append `EXCHANGE_ROUND_LIVE_MS` and `EXCHANGE_ROUND_BREAK_MS` to `.dev.vars` after `dev start`. They take effect from the next round. Never commit them.
