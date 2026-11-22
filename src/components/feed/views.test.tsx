@@ -26,6 +26,21 @@ describe('Leaderboard', () => {
     expect(err).toContain('boom')
   })
 
+  it('header count says "1 trader", not "1 traders" (bots not counted)', () => {
+    const pf = (userId: string) => ({
+      userId,
+      displayName: userId,
+      roundId: 'r',
+      cashCents: START_CASH_CENTS,
+      holdings: { ORBT: 0, CURA: 0, VOLT: 0 },
+    })
+    const one = html(<Leaderboard portfolios={[pf('u1'), pf('bot:mm')]} last={last} status="ready" />)
+    expect(one).toContain('1 trader<')
+    expect(one).not.toContain('1 traders')
+    const two = html(<Leaderboard portfolios={[pf('u1'), pf('u2')]} last={last} status="ready" />)
+    expect(two).toContain('2 traders<')
+  })
+
   it('highlights the current user and pins them when outside the top N', () => {
     const portfolios = ['a', 'b', 'c'].map((id, i) => ({
       userId: id,

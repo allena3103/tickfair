@@ -9,7 +9,7 @@ import { Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PortfolioRecord, Ticker } from '@/shared/contracts'
 import { Delta } from '@/theme/Delta'
-import { formatCents } from '@/theme/format'
+import { formatCents, formatCount } from '@/theme/format'
 import { rankPortfolios, type LeaderRow } from './rank'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
@@ -44,7 +44,7 @@ export function Leaderboard({
     <FeedPanel
       testId="leaderboard"
       title="Leaderboard"
-      meta={status === 'ready' && rows.length > 0 ? `${rows.length} traders` : undefined}
+      meta={status === 'ready' && rows.length > 0 ? formatCount(rows.length, 'trader', 'traders') : undefined}
       className={className}
     >
       {status === 'error' && <FeedError message={error || 'Could not load the leaderboard.'} />}
