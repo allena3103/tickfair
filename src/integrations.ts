@@ -22,9 +22,21 @@
 
 export const integrations: Record<
   string,
-  { billing: 'developer' | 'user'; anonymous?: boolean }
+  {
+    billing: 'developer' | 'user'
+    anonymous?: boolean
+    /**
+     * Server code only (cron, server actions). The browser proxy
+     * `/api/integrations/:name/:endpoint` must refuse it, so no client can
+     * spend the owner's credits. Enforced in src/server/http-routes.ts.
+     */
+    serverOnly?: boolean
+  }
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
+  // News generation (cron + owner-only breakingNews). Owner-billed and
+  // server-only: no client path may reach it.
+  anthropic: { billing: 'developer', serverOnly: true },
   // openai: { billing: 'developer', anonymous: true },
 }
