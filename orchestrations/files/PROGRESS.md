@@ -23,7 +23,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | **merged** | builder ✓, director ✓ (264 unit, 27 e2e ×2, build) | 3 (R1 PASS+2 minor; R2 PASS+minors; R3 FAIL rejected by the director after a source check: rounding already correct) | ✓ | e2e flaked once in ~8 runs; cause not yet identified. |
 | review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
-| evaluator | final | not started | – | – | – | |
+| evaluator | final | run 1: FAIL (17/18) | – | – | – | Criterion 1 failed: the #how-it-works anchor doesn't scroll. 5 minor bugs were routed to ui-shell and ui-trading. |
 
 ## Log
 
@@ -47,3 +47,4 @@ The director updates this file as each feature moves through the loop. Newest no
 - Independent money review of agent/exchange@0a03c97: PASS. One minor finding: halt() during a break can overwrite the previous round's results. Sent back to exchange-runtime. ui-trading is building.
 - exchange-runtime halt fix merged (from the money review). ui-trading merged. The director set Playwright `workers: 1`, because test files share accounts and the SDK's per-user presence drops a user when any one of their sessions closes. That presence behaviour is a known limitation. The director also added the `#how-it-works` anchor.
 - Full suite on `agent/exchange`: 264 unit, 27 e2e (twice), build OK. Next: the evaluator.
+- Evaluator run 1 (three real browsers as Trader A/B/C): 17/18 PASS. Orders, matching, same-batch fairness (pro-rata with the seed tiebreak), cancel, privacy (944 frames, no leaks), rollover, presence, mobile, and all security probes pass. FAIL: criterion 1, the anchor scroll. Bugs routed: ui-shell gets BUG-1, 4, and 5; ui-trading gets BUG-3 and 5a. BUG-2 (header break countdown under the dev-only override) is a known limitation that won't be fixed.
