@@ -299,12 +299,29 @@ describe('cancelFailureToShow (E2-1)', () => {
 })
 
 describe('rejectIsStale (BUG-1)', () => {
-  const shownAt = { freeCashCents: 50_000, freeShares: 0 }
-  it('keeps the reject while free cash and shares are unchanged', () => {
-    expect(rejectIsStale(shownAt, 50_000, 0)).toBe(false)
+  const at = (code: string) => ({ code, ticker: 'ORBT' as const, freeCashCents: 50_000, freeShares: 3 })
+  const now = (o: Partial<{ ticker: 'ORBT' | 'CURA'; freeCashCents: number; freeShares: number }> = {}) => ({
+    ticker: 'ORBT' as const,
+    freeCashCents: 50_000,
+    freeShares: 3,
+    ...o,
   })
-  it('drops it once free shares or free cash change (a cancel or a fill)', () => {
-    expect(rejectIsStale(shownAt, 50_000, 5)).toBe(true)
-    expect(rejectIsStale(shownAt, 60_000, 0)).toBe(true)
+  it('insufficient_cash clears only when free cash goes up', () => {
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeCashCents: 60_000 }))).toBe(true)
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeCashCents: 40_000 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_cash'), now({ freeShares: 9 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_cash'), now())).toBe(false)
+  })
+  it('insufficient_shares clears only when free shares of that ticker go up', () => {
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeShares: 5 }))).toBe(true)
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeShares: 1 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_shares'), now({ freeCashCents: 99_000 }))).toBe(false)
+    expect(rejectIsStale(at('insufficient_shares'), now({ ticker: 'CURA', freeShares: 50 }))).toBe(false)
+  })
+  it('keeps every other reject whatever the balances do', () => {
+    for (const code of ['outside_band', 'too_many_open', 'self_cross', 'rate_limited', 'round_closed', 'network', 'signed_out']) {
+      expect(rejectIsStale(at(code), now({ freeCashCents: 99_000, freeShares: 99 })), code).toBe(false)
+      expect(rejectIsStale(at(code), now({ freeCashCents: 1, freeShares: 0 })), code).toBe(false)
+    }
   })
 })

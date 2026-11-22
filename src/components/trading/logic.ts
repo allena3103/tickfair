@@ -296,15 +296,26 @@ export function cancelFailureToShow(failure: CancelFailure | null, orders: { id:
   return failure && orders.some((o) => o.id === failure.orderId) ? failure.message : null
 }
 
+/** What the ticket remembers about a reject: its code and the free balances when it arrived. */
+export interface RejectSnapshot {
+  code: string
+  ticker: Ticker
+  freeCashCents: number
+  freeShares: number
+}
+
 /**
- * A reject was judged against the free cash and shares at that moment. Once
- * either changes (a cancel frees cash, a fill adds shares), the message may
- * no longer be true, so the ticket stops showing it.
+ * Only a funds reject can be fixed by the balance moving, and only by it
+ * moving up: `insufficient_cash` once free cash rose, `insufficient_shares`
+ * once free shares of the same ticker rose. Every other reject (band, open
+ * order cap, self-cross, rate limit, transport) stays until the next edit or
+ * send.
  */
 export function rejectIsStale(
-  shownAt: { freeCashCents: number; freeShares: number },
-  freeCashCents: number,
-  freeShares: number,
+  shownAt: RejectSnapshot,
+  now: { ticker: Ticker; freeCashCents: number; freeShares: number },
 ): boolean {
-  return shownAt.freeCashCents !== freeCashCents || shownAt.freeShares !== freeShares
+  if (shownAt.code === 'insufficient_cash') return now.freeCashCents > shownAt.freeCashCents
+  if (shownAt.code === 'insufficient_shares') return now.ticker === shownAt.ticker && now.freeShares > shownAt.freeShares
+  return false
 }

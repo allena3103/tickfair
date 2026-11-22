@@ -292,7 +292,7 @@ test.describe('trade terminal (signed in)', () => {
     test.setTimeout(300_000)
     const [a] = await users(1)
     const page = a.page
-    type Sub = { subscriptionId: string; query: { collection: string; where?: Record<string, unknown>; orderBy?: string; limit?: number } }
+    type Sub = { subscriptionId: string; query: { collection: string; where?: Record<string, unknown>; orderBy?: string; orderDir?: string; limit?: number } }
     const subs: { at: number; sub: Sub }[] = []
     page.on('websocket', (ws) => {
       ws.on('framesent', (f) => {
@@ -321,9 +321,13 @@ test.describe('trade terminal (signed in)', () => {
     expect(batchAfter - batchBefore).toBeGreaterThanOrEqual(20)
 
     const inWindow = subs.filter((s) => s.at >= start)
+    // Counted per query fingerprint, not per subscriptionId, so a re-subscribe
+    // under a fresh id still counts as a repeat of the same query.
+    const fingerprint = (q: Sub['query']) =>
+      JSON.stringify([q.collection, q.where ?? null, q.orderBy ?? null, q.orderDir ?? null, q.limit ?? null])
     const countBy = (pick: (q: Sub['query']) => boolean) => {
       const per = new Map<string, number>()
-      for (const { sub } of inWindow) if (pick(sub.query)) per.set(sub.subscriptionId, (per.get(sub.subscriptionId) ?? 0) + 1)
+      for (const { sub } of inWindow) if (pick(sub.query)) per.set(fingerprint(sub.query), (per.get(fingerprint(sub.query)) ?? 0) + 1)
       return Math.max(0, ...per.values())
     }
     // ui-trading's queries: the chart's tape (has a ticker), orders, fills, portfolios.
