@@ -35,6 +35,7 @@ describe('validateReply', () => {
     ['missing sentiment', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute wins.' }), UP, 'missing_fields'],
     ['headline too long', reply({ headline: 'Orbital Compute ' + 'x'.repeat(80), body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'headline_too_long'],
     ['body too long', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute ' + 'a'.repeat(280), sentiment: 'positive' }), UP, 'body_too_long'],
+    ['three sentences with a quote', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute shipped. "Demand is strong." Margins rose.', sentiment: 'positive' }), UP, 'too_many_sentences'],
     ['three sentences', reply({ headline: 'Orbital Compute up', body: 'Orbital Compute wins. It grows. It hires.', sentiment: 'positive' }), UP, 'too_many_sentences'],
     ['real ticker', reply({ headline: 'Orbital Compute beats NVDA on chips', body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'unknown_ticker'],
     ['real ticker with $', reply({ headline: 'Orbital Compute tops $AAPL', body: 'Orbital Compute wins.', sentiment: 'positive' }), UP, 'unknown_ticker'],
@@ -59,6 +60,9 @@ describe('validateReply', () => {
   it('counts sentences without splitting decimals', () => {
     expect(countSentences('Output rose 4.5% this year. More soon.')).toBe(2)
     expect(countSentences('No terminator')).toBe(1)
+    expect(countSentences('Orbital Compute shipped. "Demand is strong." Margins rose.')).toBe(3)
+    expect(countSentences('Orbital Compute shipped. “Demand is strong.” Margins rose.')).toBe(3)
+    expect(countSentences('Orbital Compute shipped (on time.) Margins rose.')).toBe(2)
   })
 })
 

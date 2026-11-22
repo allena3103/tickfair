@@ -43,8 +43,9 @@ export function makeBreakingNews(deps: BreakingNewsDeps): ActionHandler<Env> {
 
     const now = deps.now()
     if (now - lastCallAt < BREAKING_NEWS_COOLDOWN_MS) return reject('rate_limited')
-    if (now - (await deps.latestNewsAt(env)) < BREAKING_NEWS_COOLDOWN_MS) return reject('rate_limited')
+    // Stamp before any await, so a concurrent call in this isolate is refused.
     lastCallAt = now
+    if (now - (await deps.latestNewsAt(env)) < BREAKING_NEWS_COOLDOWN_MS) return reject('rate_limited')
 
     const invoke: IntegrationInvoke = async (endpoint, body) => {
       const res = await tools.integration(endpoint, body)

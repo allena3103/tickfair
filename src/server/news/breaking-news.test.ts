@@ -69,6 +69,18 @@ describe('breakingNews', () => {
     expect((await call(OWNER)).success).toBe(true)
   })
 
+  it('lets only one of two concurrent owner calls through', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const { deps, call } = setup({ latestNewsAt: vi.fn(async () => { await gate; return 0 }) })
+    const both = Promise.all([call(OWNER), call(OWNER)])
+    release()
+    const results = await both
+    expect(deps.run).toHaveBeenCalledTimes(1)
+    expect(results.filter((r) => r.success)).toHaveLength(1)
+    expect(results).toContainEqual({ success: false, error: 'rate_limited' })
+  })
+
   it('rate-limits on a recent news record from another isolate', async () => {
     const { call } = setup({ latestNewsAt: vi.fn(async () => 95_000) })
     expect(await call(OWNER)).toEqual({ success: false, error: 'rate_limited' })
