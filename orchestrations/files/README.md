@@ -50,8 +50,8 @@ flowchart LR
 | `src/engine/market/**` (incl. `*.test.ts`) | market-sim |
 | `src/cron.ts`, `src/integrations.ts`, `src/actions/news.ts`, `src/server/news/**` | news |
 | `tests/api.spec.ts` | news (wave 1), then exchange-runtime (wave 2) |
-| `src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts` | foundation creates the room shell; exchange-runtime owns it from wave 2 |
-| `src/pages/index.tsx`, `src/pages/(app)/_layout.tsx`, `src/pages/(app)/rounds.tsx`, `src/components/shell/**`, `src/components/feed/**`, `src/theme/**`, `docs/design/**` | ui-shell |
+| `src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `src/actions/orders.test.ts` | foundation creates the room shell; exchange-runtime owns it from wave 2 |
+| `src/pages/index.tsx`, `src/pages/_app.tsx`, `src/pages/(app)/_layout.tsx`, `src/pages/(app)/home.tsx`, `src/pages/(app)/rounds.tsx`, `src/pages/(app)/(protected)/api-status.tsx`, `src/pages/(app)/(protected)/settings.tsx`, `src/components/Navigation.tsx`, `src/nav.ts`, `src/styles.css`, `src/themes.ts`, `src/themes.css`, `src/components/shell/**`, `src/components/feed/**`, `src/theme/**`, `docs/design/**` | ui-shell |
 | `tests/smoke.spec.ts` | ui-shell (wave 1), then ui-trading (wave 2) |
 | `src/pages/(app)/(protected)/trade.tsx`, `src/components/trading/**`, `src/hooks/useExchangeStream.ts`, `tests/collab.spec.ts` | ui-trading |
 

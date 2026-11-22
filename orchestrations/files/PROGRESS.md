@@ -14,7 +14,7 @@ The director updates this file as each feature moves through the loop. Newest no
 ## Status
 
 | Worker | Wave | State | Check runs | Review rounds | Merged | Notes |
-|--------|------|-------|------------|---------------|--------|-------|
+| foundation | 0 | **merged** | builder ✓, director ✓ (tsc, lint, 20 unit, 11 e2e, build) | 2 (R1 FAIL: unapproved codes, resolved by a director spec update; R2 PASS) | ✓ | App registered `app_01M80AVDTA8NPYNJWXARJYZRPG`. Spike S1–S3 pass locally; prod subrequest cap still unknown. |
 | foundation | 0 | not started | – | – | – | |
 | engine-core | 1 | not started | – | – | – | |
 | market-sim | 1 | not started | – | – | – | |
@@ -28,3 +28,5 @@ The director updates this file as each feature moves through the loop. Newest no
 ## Log
 
 - D0: three test accounts created (Trader A, B, C). Passwords were generated and piped straight into the CLI, so they never appeared in a command, file, or commit. The integration branch `agent/exchange` was created in `C:/DeepSpace-project-exchange`.
+- Wave 0: foundation merged into `agent/exchange`. Full suite green after the merge. The director also checked: unauthenticated `placeOrder` → 401; signed-in → `round_closed`; a forged `userId` is ignored; `/exchange/shock` is not publicly routed (404).
+- Director contract changes: `invalid_side`/`invalid_type` reject codes, `NewsDraw` in `contracts.ts`, and market orders store their band-edge limit. The spike gotchas are recorded in `LESSONS.md`.

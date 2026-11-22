@@ -9,7 +9,7 @@
 
 ## Out of scope
 
-The shock's effect on prices (exchange-runtime), news UI (ui-shell), and `src/engine/market/**`. Until market-sim merges, use the `NewsDraw` type from BRIEF/02 and import `drawNewsEvent` from `src/engine/market` if it's present on `agent/exchange`. If it isn't, ask the director whether to wait or rebase. Don't reimplement it.
+The shock's effect on prices (exchange-runtime), news UI (ui-shell), and `src/engine/market/**`. `NewsDraw` is in `src/shared/contracts.ts`. market-sim is building `createRng` and `drawNewsEvent` in parallel with you, so build the pipeline with the draw **injected** (generate and publish take a `NewsDraw`). Leave the cron's call to `drawNewsEvent` for last. When the director tells you market-sim is merged, rebase onto `agent/exchange`, import `createRng` and `drawNewsEvent` from `src/engine/market`, finish the cron wiring, then run your final checks. Don't reimplement them.
 
 ## Steps
 

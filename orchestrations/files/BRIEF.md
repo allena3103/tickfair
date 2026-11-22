@@ -132,6 +132,8 @@ export type ExchangeServerMsg =
 
 The impact size of a news event is **never** stored in records or sent to clients.
 
+Market orders are stored with the band-edge limit the engine actually used (`marketLimit`), so `orders.limitCents` is always set. `src/shared/contracts.ts` (merged from foundation) is the code form of these contracts, including the `*Record` interfaces. Import types from there; don't redeclare them.
+
 ### Presence
 
 `usePresenceRoom(\`floor:${APP_ID}\`)`, peer state `{ ticker: Ticker }`. Online list via `usePresence()`.

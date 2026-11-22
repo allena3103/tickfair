@@ -22,7 +22,7 @@ export const INITIAL_PRICES: Record<Ticker, number>                             
 export function stepFundamental(f: Fundamental, rng: Rng): Fundamental          // small random walk + move toward target while rampLeft > 0
 export function applyShock(f: Fundamental, deltaBps: number, rampBatches: number): Fundamental
 
-export interface NewsDraw { ticker: Ticker; direction: 1 | -1; size: 'minor' | 'major'; deltaBps: number; rampBatches: number }
+// NewsDraw is defined in src/shared/contracts.ts (import it; don't redeclare it)
 export function drawNewsEvent(rng: Rng): NewsDraw                               // minor 100–200 bps, major 400–800 bps, ramp 10–20
 
 export interface BotIntent { botId: string; ticker: Ticker; side: Side; qty: number; limitCents: number }

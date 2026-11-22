@@ -53,6 +53,19 @@ export interface BreakingNewsParams {
   ticker?: Ticker
 }
 
+/**
+ * One news event drawn by the engine (market-sim's `drawNewsEvent`).
+ * The engine picks direction and size; the LLM only writes text for it.
+ * minor = 100–200 bps, major = 400–800 bps, ramp 10–20 batches.
+ */
+export interface NewsDraw {
+  ticker: Ticker
+  direction: 1 | -1
+  size: 'minor' | 'major'
+  deltaBps: number
+  rampBatches: number
+}
+
 /** Actions return ActionResult: `{ success: false, error: RejectCode }` on rejection. */
 export type RejectCode =
   | 'round_closed'
