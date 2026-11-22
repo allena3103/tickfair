@@ -175,6 +175,17 @@ test.describe('presence', () => {
     const [idA, idB] = await Promise.all([selfId(a.page), selfId(b.page)])
     expect(idA).not.toBe(idB)
 
+    // The header count always matches the on-floor rows in the list. Compare
+    // against the list, not a fixed number: any other signed-in session on
+    // this server (a dev tab left open on the same port) is a real peer too.
+    const onFloor = (page: Page) =>
+      page.getByTestId('online-traders').locator('[data-testid="online-trader"][data-on-floor="true"]')
+    const expectCountMatchesList = (page: Page) =>
+      expect(async () => {
+        const rows = await onFloor(page).count()
+        await expect(page.getByTestId('online-count')).toHaveText(new RegExp(`^\\D*${rows}\\D*$`), { timeout: 1_000 })
+      }).toPass({ timeout: 20_000 })
+
     // Each sees the other live on the floor (PresenceRoom), not just a heartbeat.
     for (const [viewer, otherId] of [
       [a.page, idB],
@@ -183,9 +194,10 @@ test.describe('presence', () => {
       await expect(
         viewer.locator(`[data-testid="online-trader"][data-user-id="${otherId}"][data-on-floor="true"]`),
       ).toHaveCount(1, { timeout: 20_000 })
-      // Exactly the two floor connections (this run's server has no one else).
-      await expect(viewer.getByTestId('online-count')).toHaveText(/^\D*2\D*$/, { timeout: 20_000 })
+      await expectCountMatchesList(viewer)
     }
+    const before = await onFloor(a.page).count()
+    expect(before).toBeGreaterThanOrEqual(2)
 
     // When B leaves, A's floor list drops B's live marker and the count falls
     // right away. B's heartbeat is still fresh, so B may stay listed, but only
@@ -194,7 +206,8 @@ test.describe('presence', () => {
     await expect(
       a.page.locator(`[data-testid="online-trader"][data-user-id="${idB}"][data-on-floor="true"]`),
     ).toHaveCount(0, { timeout: 20_000 })
-    await expect(a.page.getByTestId('online-count')).toHaveText(/^\D*1\D*$/, { timeout: 20_000 })
+    await expect(onFloor(a.page)).toHaveCount(before - 1, { timeout: 20_000 })
+    await expectCountMatchesList(a.page)
 
     // On the terminal, your own row shows the ticker you're watching, not "on floor".
     await a.page.goto('/trade')
@@ -202,6 +215,41 @@ test.describe('presence', () => {
       .getByTestId('online-traders')
       .locator('[data-testid="online-trader"][data-self="true"] [data-testid="online-trader-status"]')
     await expect(mine).toHaveText('ORBT', { timeout: 20_000 })
+  })
+})
+
+/**
+ * Ghost peer guard: a trader who left the floor must not come back when
+ * someone else joins. The SDK's PresenceRoom rebuilds its peer list from the
+ * sockets it still holds on every connect, so a closed socket that lingered
+ * would return as a peer no leave event removes. It doesn't happen today
+ * (the runtime completes the close handshake); this keeps it that way.
+ */
+test.describe('presence: no ghost after leaving', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 3, `Needs 3 usable test accounts, found ${usable}.`)
+
+  test('C leaves the floor, then A joins and does not see C on the floor', async ({ users }) => {
+    const [a, , c] = await users(3)
+    const self = (page: Page) =>
+      page.getByTestId('online-traders').locator('[data-testid="online-trader"][data-self="true"]')
+
+    await c.page.goto('/home')
+    await expect(self(c.page)).toHaveAttribute('data-on-floor', 'true', { timeout: 20_000 })
+    const idC = (await self(c.page).getAttribute('data-user-id')) as string
+
+    // C leaves: the landing page has no floor connection.
+    await c.page.goto('/')
+    await expect(c.page.getByTestId('static-landing')).toBeVisible()
+    await c.page.waitForTimeout(2_000) // let the room handle C's close
+
+    await a.page.goto('/home')
+    await expect(self(a.page)).toHaveAttribute('data-on-floor', 'true', { timeout: 20_000 })
+    // A's join sync already arrived; give a ghost time to show if it exists.
+    await a.page.waitForTimeout(2_000)
+    await expect(
+      a.page.locator(`[data-testid="online-trader"][data-user-id="${idC}"][data-on-floor="true"]`),
+    ).toHaveCount(0)
   })
 })
 

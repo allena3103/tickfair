@@ -23,7 +23,7 @@ Built on [DeepSpace](https://docs.deep.space) by directing a team of coding agen
 ```bash
 npm ci
 npx deepspace dev start          # http://localhost:5173
-npx deepspace test run all       # 286 unit + 35 browser tests
+npx deepspace test run all       # 286 unit + 36 browser tests
 ```
 
 Local servers don't make paid AI calls, so news headlines are off unless you set `NEWS_LLM_IN_DEV=true`.
@@ -120,7 +120,7 @@ I acted as the **director**. Each builder agent ran as its own Claude Code sessi
 ## Status
 
 **Verified locally:**
-- 286 unit tests and 35 browser tests;
+- 286 unit tests and 36 browser tests;
 - 18 of 18 acceptance criteria in the final full evaluator run (run 5), plus a clean targeted recheck (run 6);
 - one real AI headline generated and validated.
 
