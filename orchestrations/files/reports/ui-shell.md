@@ -2,6 +2,25 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: review round 1 (PASS with 4 minor findings, all fixed)
+
+| # | Finding | Fix | Proof |
+|---|---------|-----|-------|
+| F1 | The `/trade` gate test used `isVisible({timeout})`, which doesn't wait, so it raced the lazily loaded 404 page. | `tests/smoke.spec.ts` now waits for either outcome with a real assertion, `expect(notFound.or(gate).first()).toBeVisible({ timeout: 15_000 })`, and only then decides whether to skip. | Both e2e runs below skip the test cleanly, with no failures. |
+| F2 | `RoundsList` showed "No human traders" next to "N traders" when `winnerId` was missing, stale, or a bot. | The winner now falls back to the top human standing (standings are sorted best-first). "No human traders" appears only when the standings hold no humans. | `views.test.tsx`: the fallback is checked for `winnerId` set to `''`, `'gone'`, and `'bot:mm'`, plus a case with no humans. |
+| F3 | With no resolved round, `NewsFeed` and `Tape` queried every round, and the round query's error was never shown. | New `resolveFeedRound` and `feedStatus` in `src/components/shell/useCurrentRound.ts`. With no round they query `NO_ROUND` (`'__no_round__'`), which matches nothing. A round loading or error state takes precedence over the feed's own status. `NewsFeed`, `Tape`, and the portfolios query on `/home` all use them, so the three behave the same. | `logic.test.ts` › "round-scoped feeds": 3 cases covering the sentinel, an explicit round id, and error and loading precedence. |
+| F4 | `Delta` took its arrow and color from the raw value, but the label was rounded, so it could show "▲ 0.00%" or "▲ $0". | New `displayDelta(value, kind, { whole })` in `src/theme/format.ts`. It rounds once (half away from zero) and takes both the label and the direction from the rounded value. `Delta`'s props are now `{ value, kind: 'price' \| 'percent' \| 'money', whole? }`, and the free-form `children` and `percent` props are gone. I updated the callers in `Leaderboard`, `RoundsList`, and `home.tsx`. | `format.test.ts` › "derives the arrow from the displayed value": rounded-to-zero cases (±0.004% → `· 0.00%`, ±49¢ whole → `· $0`, ±0.4¢ → `· 0.00`), the boundaries (±0.005% → ±0.01%, ±50¢ → ±$1), and NaN. |
+
+Checks on `15ca254`:
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- `npm run build`: exit 0.
+- `npx deepspace test run unit --port 5185`: 11 files, 117 tests passed (32 of them cover ui-shell, up from 26).
+- `npx deepspace test run e2e --port 5185`, run 1: exit 0, with 12 passed and 1 skipped.
+- The same command, run 2: exit 0, with 12 passed and 1 skipped.
+- The skip is `/trade`, which doesn't exist until ui-trading adds it.
+
+**Note for ui-trading:** `<Delta>` now takes `kind` and `whole` instead of `percent` and `children`. Write `<Delta value={pnlCents} kind="money" whole />` or `<Delta value={ratio} kind="percent" />`. Round-scoped feeds should use `resolveFeedRound` and `feedStatus`.
+
 ## Update: round 2 (director addition)
 
 - I rebased `agent/ui-shell` onto `agent/exchange` (`99497b3`, which includes engine-core and market-sim) with no conflicts.
@@ -16,7 +35,7 @@ Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `age
 
 ## 1. Built and verified
 
-All checks ran on commit `80a20d4`, after the rebase and the placeholder removal. This report is the only change after it.
+These checks ran on commit `80a20d4`, after the rebase and the placeholder removal. The latest checks on `15ca254`, after the review fixes, are in the review update at the top of this report.
 
 | Item | Proof | Result |
 |------|-------|--------|
@@ -115,4 +134,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `99497b3`. The final code commit is `80a20d4`, and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `99497b3`. The final code commit is `15ca254` (the review fixes), and the report commit is the next one, on top of it.
