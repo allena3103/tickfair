@@ -29,6 +29,11 @@ export function formatQty(qty: number): string {
   return int.format(qty)
 }
 
+/** "1 trader", "2 traders", "1,200 traders". */
+export function formatCount(n: number, one: string, many: string): string {
+  return `${formatQty(n)} ${n === 1 ? one : many}`
+}
+
 export type Direction = 'up' | 'down' | 'flat'
 
 export function directionOf(delta: number): Direction {

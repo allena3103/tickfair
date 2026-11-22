@@ -86,7 +86,7 @@ export function TapeView({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} data-testid="tape-row" className="border-t border-border">
+              <tr key={r.id} data-testid="tape-row" data-record-id={r.id} data-at={r.at} className="border-t border-border">
                 <td className="px-3 py-1 text-muted-foreground">{formatTimeOfDay(r.at)}</td>
                 {!ticker && <td className="py-1">{r.ticker}</td>}
                 <td className="py-1 text-right">{formatPrice(r.clearCents)}</td>

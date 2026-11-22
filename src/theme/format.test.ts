@@ -3,6 +3,7 @@ import {
   directionOf,
   formatCents,
   formatClock,
+  formatCount,
   formatPrice,
   formatQty,
   formatRelativeTime,
@@ -79,5 +80,12 @@ describe('format', () => {
     expect(formatClock(3_725_000)).toBe('1:02:05')
     expect(formatClock(400)).toBe('0:01')
     expect(formatClock(-5)).toBe('0:00')
+  })
+
+  it('pluralizes counts', () => {
+    expect(formatCount(1, 'trader', 'traders')).toBe('1 trader')
+    expect(formatCount(0, 'trader', 'traders')).toBe('0 traders')
+    expect(formatCount(2, 'trader', 'traders')).toBe('2 traders')
+    expect(formatCount(1200, 'trader', 'traders')).toBe('1,200 traders')
   })
 })

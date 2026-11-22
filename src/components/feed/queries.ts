@@ -32,8 +32,3 @@ export function newsQuery(roundId: string): FeedQuery {
 export function portfoliosQuery(roundId: string): FeedQuery {
   return { where: { roundId } }
 }
-
-/** The SDK's rule (RecordSocket RECORD_CHANGE): true means a full re-subscribe on every change. */
-export function resubscribesOnChange(query: { orderBy?: unknown; limit?: unknown }): boolean {
-  return query.orderBy !== undefined || query.limit !== undefined
-}
