@@ -1,4 +1,27 @@
-# Report: ui-trading (wave 2), evaluator run 3 fixes
+# Report: ui-trading (wave 2), reviewer fixes on evaluator run 3
+
+**Reviewer FAIL fixed, on code commit `e5938cc`.** Every check was rerun by me on that commit.
+
+| Finding | Fix | Test |
+|---------|-----|------|
+| **F1** `rejectIsStale` cleared any reject on any balance change in either direction. | `logic.ts`: the ticket now stores the reject `code` and `ticker` with the balances (`RejectSnapshot`). A reject is stale only for `insufficient_cash` when free cash **rose**, or `insufficient_shares` when free shares of the **same ticker** rose. Every other code (`outside_band`, `too_many_open`, `self_cross`, `rate_limited`, `round_closed`, transport errors) is never cleared by balance changes, only by the next edit or send. | Unit `rejectIsStale (BUG-1)`, 3 cases: cash rise clears `insufficient_cash`, but a cash fall, a shares change, or no change keeps it; a shares rise clears `insufficient_shares`, but a fall, a cash-only change, or another ticker keeps it; 7 other codes are kept under both rises and falls. |
+| **F2** The balances stored with a reject came from the submit-time closure. | `OrderTicket.tsx`: a ref holds `{ ticker, freeCashCents, freeShares }` and is updated by an effect after each render. The response handler spreads `free.current` into the error, so the reject is judged against the balances at response time. A fill that lands while the order is in flight no longer hides the reject before it is shown. | Covered by the F1 rule tests, plus typecheck and lint (`react-hooks` rules pass with the ref updated in an effect, not during render). |
+| **F3** The PERF test counted per `subscriptionId`, so a re-subscribe under a fresh id would go uncounted. | `tests/smoke.spec.ts`: frames are counted per query fingerprint, `JSON.stringify([collection, where, orderBy, orderDir, limit])`. The SDK de-duplicates identical query keys, so one fingerprint is one live query. A repeat under any id counts. | **Negative check, rerun with the new counting:** with the old chart query (`orderBy: 'at', limit: 300`) put back, chart tape was **25** in 30 s and the test failed (exit 1). With the fix: chart tape 0, orders 0, fills 0, portfolios 0. |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 275 passed (275)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.6 min. PERF logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":23}` |
+
+The ui-shell `Tape` request below still stands (`feedTape` 23 in 30 s).
+
+Files changed: `src/components/trading/logic.ts`, `logic.test.ts`, `OrderTicket.tsx`, `tests/smoke.spec.ts`. All are in my ownership list.
+
+---
+
+## Evaluator run 3 fixes
 
 **Evaluator run 3 fixes, on code commit `3ba2718`,** rebased onto `agent/exchange` at `e6cc3e4` (clean). Every check was rerun by me on that commit.
 
@@ -208,7 +231,8 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Evaluator run 3 code commit: `3ba2718`, on `agent/exchange` at `e6cc3e4`. This report is committed on top of it.
+- Reviewer-fix code commit: `e5938cc`. This report is committed on top of it.
+- Evaluator run 3 code commit: `3ba2718`, on `agent/exchange` at `e6cc3e4`.
 - E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`.
 - Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`.
 - Review round 2 code commit: `1206662`.
