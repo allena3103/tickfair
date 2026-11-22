@@ -287,15 +287,6 @@ describe('batch', () => {
     }
   })
 
-  it('a retried mirror for the same batch cannot duplicate a fill (deterministic recordIds)', () => {
-    const { core, sql } = setup()
-    core.wake(T0)
-    place(core, T0, 'userA', { ticker: 'ORBT', side: 'buy', type: 'market', qty: 5 })
-    runBatches(core, 1)
-    const ids = queued(sql, 'fills').map((f) => f.recordId)
-    expect(new Set(ids).size).toBe(ids.length)
-  })
-
   it('does not clear early, and keeps the clock without drift', () => {
     const { core } = setup()
     core.wake(T0)
@@ -501,7 +492,7 @@ describe('mirror flush', () => {
     const sent: string[] = []
     const r1 = await flushMirror(sql, async (w) => {
       sent.push(`${w.collection}/${w.recordId}`)
-    }, () => {}, 2)
+    }, () => {}, T0, 2)
     expect(r1).toMatchObject({ sent: 2, failed: 0, left: total - 2 })
     expect(sent[0]).toMatch(/^rounds\//) // rounds first
 
@@ -510,25 +501,96 @@ describe('mirror flush', () => {
     if (!res.ok) throw new Error(res.code)
     const r2 = await flushMirror(sql, async (w) => {
       if (w.collection === 'orders') core.cancelOrder(T0, { userId: 'userA', orderId: res.data.orderId })
-    }, () => {}, 100)
+    }, () => {}, T0, 100)
     expect(r2.left).toBeGreaterThan(0)
     const left = queued<OrderRecord>(sql, 'orders')
     expect(left).toHaveLength(1)
     expect(left[0].data.status).toBe('cancelled')
   })
 
-  it('retries a failed write and drops it after 5 attempts with a log line', async () => {
+  it('never drops a row: backs off exponentially, then delivers the rounds done record and a fill', async () => {
     const { core, sql } = setup()
     core.wake(T0)
-    const lines: string[] = []
-    const fail = async () => {
-      throw new Error('boom')
+    place(core, T0, 'userA', { ticker: 'ORBT', side: 'buy', type: 'market', qty: 5 })
+    runBatches(core, 1)
+    const fillId = queued(sql, 'fills').find((f) => f.actor === 'userA')!.recordId
+    const roundId = core.meta()!.roundId
+    core.tick(T0 + LIVE_MS, false) // round ends: rounds record goes to 'done'
+    expect(queued<{ status: string }>(sql, 'rounds')[0].data.status).toBe('done')
+    const total = pendingCount(sql)
+
+    // RecordRoom is down for 8 straight attempts per row.
+    const warnings: string[] = []
+    const failures = new Map<string, number>()
+    let now = T0 + LIVE_MS
+    const gaps: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const r = await flushMirror(sql, async (w) => {
+        const k = `${w.collection}/${w.recordId}`
+        failures.set(k, (failures.get(k) ?? 0) + 1)
+        throw new Error('RecordRoom 503')
+      }, (l) => warnings.push(l), now, 1_000)
+      expect(r).toMatchObject({ sent: 0, failed: total, left: total })
+      // Nothing is due again before the backoff runs out.
+      const next = rows<{ t: number }>(sql, `SELECT MIN(nextAt) AS t FROM mirror`)[0].t
+      expect((await flushMirror(sql, async () => { throw new Error('must not be called') }, () => {}, next - 1, 1_000)).failed).toBe(0)
+      gaps.push(next - now)
+      now = next
     }
-    for (let i = 0; i < 4; i++) await flushMirror(sql, fail, (l) => lines.push(l), 1)
-    expect(lines).toEqual([])
-    const r = await flushMirror(sql, fail, (l) => lines.push(l), 1)
-    expect(r.dropped).toBe(1)
-    expect(lines[0]).toMatch(/mirror dropped rounds\//)
+    expect(gaps).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000])
+    expect(warnings).toHaveLength(8 * total)
+    expect(warnings[0]).toMatch(/^\[exchange\] mirror write failed \(attempt 1\) .*retry in 1s: RecordRoom 503$/)
+    expect(pendingCount(sql)).toBe(total)
+
+    // RecordRoom recovers: everything is delivered, including the done round and the fill.
+    const delivered: { collection: string; recordId: string; actor: string; data: Record<string, unknown> }[] = []
+    const r = await flushMirror(sql, async (w) => {
+      delivered.push(w)
+    }, () => {}, now, 1_000)
+    expect(r).toMatchObject({ sent: total, failed: 0, left: 0 })
+    expect(delivered.find((w) => w.collection === 'rounds' && w.recordId === roundId)?.data.status).toBe('done')
+    expect(delivered.find((w) => w.collection === 'fills' && w.recordId === fillId)?.actor).toBe('userA')
+  })
+
+  it('a retried fill write reuses its recordId and leaves the queue empty', async () => {
+    const { core, sql } = setup()
+    core.wake(T0)
+    const placed = place(core, T0, 'userA', { ticker: 'ORBT', side: 'buy', type: 'market', qty: 5 })
+    if (!placed.ok) throw new Error(placed.code)
+    const { now } = runBatches(core, 1)
+    const batchId = core.meta()!.batchId - 1
+    const expected = `${placed.data.orderId}:${batchId}`
+    expect(queued(sql, 'fills').map((f) => f.recordId)).toContain(expected)
+
+    const seen: string[] = []
+    let rejected = false
+    const writer = async (w: { collection: string; recordId: string }) => {
+      if (w.collection !== 'fills') return
+      seen.push(w.recordId)
+      if (!rejected) {
+        rejected = true
+        throw new Error('transient')
+      }
+    }
+    const first = await flushMirror(sql, writer, () => {}, now, 1_000)
+    expect(first.failed).toBe(1)
+    const second = await flushMirror(sql, writer, () => {}, now + 1_000, 1_000)
+    expect(second.failed).toBe(0)
+    expect(seen).toEqual([expected, expected])
+    expect(pendingCount(sql)).toBe(0)
+  })
+})
+
+describe('schema upgrade', () => {
+  it('adds the backoff column to a mirror table made before it existed, keeping queued rows', () => {
+    const { sql, txn } = memoryDb()
+    sql.exec(`CREATE TABLE mirror (
+      collection TEXT NOT NULL, recordId TEXT NOT NULL, actor TEXT NOT NULL, data TEXT NOT NULL,
+      ver INTEGER NOT NULL, seq INTEGER NOT NULL, prio INTEGER NOT NULL, attempts INTEGER NOT NULL,
+      PRIMARY KEY (collection, recordId))`)
+    sql.exec(`INSERT INTO mirror VALUES ('rounds', 'r1', '', '{}', 1, 1, 0, 3)`)
+    new ExchangeCore({ sql, txn, durations: { liveMs: LIVE_MS, breakMs: BREAK_MS }, newId: () => 'x', log: () => {}, logError: () => {} })
+    expect(rows(sql, `SELECT recordId, attempts, nextAt FROM mirror`)).toEqual([{ recordId: 'r1', attempts: 3, nextAt: 0 }])
   })
 })
 

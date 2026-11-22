@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { test as dsTest, loadAllTestAccounts } from 'deepspace/testing'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { ROUND_BREAK_MS } from '../src/shared/contracts'
 
 test.describe('API tests', () => {
   test('auth proxy forwards to auth worker', async ({ request }) => {
@@ -141,7 +142,7 @@ async function until<T>(
   throw new Error(`timed out waiting on ${collection} ${JSON.stringify(where)}`)
 }
 
-type Snapshot = { roundId: string; phase: string; batchId: number; last: Record<string, number> }
+type Snapshot = { roundId: string; phase: string; phaseEndsAt: number; batchId: number; last: Record<string, number> }
 
 /** The exchange stream's first message (ex.snapshot). */
 async function exchangeSnapshot(page: Page, token: string): Promise<Snapshot> {
@@ -165,6 +166,62 @@ async function exchangeSnapshot(page: Page, token: string): Promise<Snapshot> {
       }),
     { appId: APP_ID, token },
   )
+}
+
+/**
+ * A snapshot of a live round with at least `minLeftMs` to go. If the round is
+ * in its break, or about to end, waits until that phase is over (+1 s) and
+ * looks again, so no test depends on where the wall clock falls in a round.
+ * Waits at most through one round end and one full break.
+ */
+async function liveSnapshot(page: Page, token: string, minLeftMs: number): Promise<Snapshot> {
+  for (let i = 0; i < 4; i++) {
+    const snap = await exchangeSnapshot(page, token)
+    const left = snap.phaseEndsAt - Date.now()
+    if (snap.phase === 'live' && left >= minLeftMs) return snap
+    await page.waitForTimeout(Math.max(1_000, left + 1_000))
+  }
+  throw new Error('no live round with enough time left')
+}
+
+/** Room for one wait through a round end and a full break, plus the test itself. */
+const PHASE_SAFE_TIMEOUT = ROUND_BREAK_MS + 2 * 60_000
+
+const ROLLOVER = Symbol('rollover')
+type MaybeRollover<T> = T | typeof ROLLOVER
+
+/** True if any action result says the round closed under us. */
+function closed(...results: ActResult[]): boolean {
+  return results.some((r) => r.error === 'round_closed')
+}
+
+/**
+ * Run `scenario` inside one live round. The scenario returns ROLLOVER if the
+ * round changed under it (a round_closed reply, or a different roundId on a
+ * re-check); then it runs once more in the next round.
+ */
+async function inOneRound<T>(
+  page: Page,
+  token: string,
+  minLeftMs: number,
+  scenario: (snap: Snapshot) => Promise<MaybeRollover<T>>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = await scenario(await liveSnapshot(page, token, minLeftMs))
+    if (out !== ROLLOVER) return out
+  }
+  throw new Error('the round rolled over during both attempts')
+}
+
+/** Re-snapshot until batch `batchId` has cleared. False if round `roundId` ended first. */
+async function clearedInRound(page: Page, token: string, roundId: string, batchId: number): Promise<boolean> {
+  for (let i = 0; i < 10; i++) {
+    const s = await exchangeSnapshot(page, token)
+    if (s.roundId !== roundId || s.phase !== 'live') return false
+    if (s.batchId > batchId) return true
+    await page.waitForTimeout(500)
+  }
+  throw new Error(`batch ${batchId} did not clear`)
 }
 
 /** ±10% band of `last`, rounded inward (engine-core's priceBand rule). */
@@ -200,91 +257,106 @@ dsTest.describe('Exchange API (signed in)', () => {
   dsTest.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts')
 
   dsTest('typed rejections for bad ticker, qty, price, band, and insufficient cash', async ({ users }) => {
+    dsTest.setTimeout(PHASE_SAFE_TIMEOUT)
     const [a] = await signedIn(users, 1)
-    const snap = await exchangeSnapshot(a.page, a.token)
-    expect(snap.phase).toBe('live')
-    const last = snap.last.ORBT
-    const cases: [Record<string, unknown>, string][] = [
-      [{ ticker: 'AAPL', side: 'buy', type: 'limit', qty: 1, limitCents: last }, 'invalid_ticker'],
-      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 0, limitCents: last }, 'invalid_qty'],
-      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1.5, limitCents: last }, 'invalid_qty'],
-      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: -1 }, 'invalid_price'],
-      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: last * 3 }, 'outside_band'],
-      // 10,000 shares at ~$100+ is far more than $100k.
-      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 10_000, limitCents: last }, 'insufficient_cash'],
-    ]
-    for (const [params, code] of cases) {
-      expect(await act(a.page, a.token, 'placeOrder', params), JSON.stringify(params)).toEqual({ success: false, error: code })
-    }
+    await inOneRound(a.page, a.token, 20_000, async (snap) => {
+      const last = snap.last.ORBT
+      const cases: [Record<string, unknown>, string][] = [
+        [{ ticker: 'AAPL', side: 'buy', type: 'limit', qty: 1, limitCents: last }, 'invalid_ticker'],
+        [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 0, limitCents: last }, 'invalid_qty'],
+        [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1.5, limitCents: last }, 'invalid_qty'],
+        [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: -1 }, 'invalid_price'],
+        [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: last * 3 }, 'outside_band'],
+        // 10,000 shares at ~$100+ is far more than $100k.
+        [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 10_000, limitCents: last }, 'insufficient_cash'],
+      ]
+      const results: ActResult[] = []
+      for (const [params] of cases) results.push(await act(a.page, a.token, 'placeOrder', params))
+      if (closed(...results)) return ROLLOVER
+      cases.forEach(([params, code], i) => expect(results[i], JSON.stringify(params)).toEqual({ success: false, error: code }))
+      return true
+    })
   })
 
   dsTest('a valid order returns orderId and batchId; only its owner can cancel or see it', async ({ users }) => {
+    dsTest.setTimeout(PHASE_SAFE_TIMEOUT)
     const [a, b] = await signedIn(users, 2)
-    const snap = await exchangeSnapshot(a.page, a.token)
-    // A resting bid at the bottom of the band, so it is still open when we cancel it.
-    const placed = await act(a.page, a.token, 'placeOrder', {
-      ticker: 'CURA', side: 'buy', type: 'limit', qty: 1, limitCents: band(snap.last.CURA).lo,
-    })
-    expect(placed.success).toBe(true)
-    expect(placed.data?.orderId).toMatch(/^o-/)
-    expect(Number.isInteger(placed.data?.batchId)).toBe(true)
-    const orderId = placed.data!.orderId
+    await inOneRound(a.page, a.token, 30_000, async (snap) => {
+      // A resting bid at the bottom of the band, so it is still open when we cancel it.
+      const placed = await act(a.page, a.token, 'placeOrder', {
+        ticker: 'CURA', side: 'buy', type: 'limit', qty: 1, limitCents: band(snap.last.CURA).lo,
+      })
+      if (closed(placed)) return ROLLOVER
+      expect(placed.success).toBe(true)
+      expect(placed.data?.orderId).toMatch(/^o-/)
+      expect(Number.isInteger(placed.data?.batchId)).toBe(true)
+      const orderId = placed.data!.orderId
 
-    expect(await act(b.page, b.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'not_owner' })
-    expect(await act(a.page, a.token, 'cancelOrder', { orderId: 'o-00000000-0000-0000-0000-000000000000' })).toEqual({
-      success: false,
-      error: 'not_found',
-    })
-    // If a bot happened to sell into it, the order is final instead; both are correct.
-    const cancelled = await act(a.page, a.token, 'cancelOrder', { orderId })
-    expect([JSON.stringify({ success: true, data: {} }), JSON.stringify({ success: false, error: 'already_final' })]).toContain(
-      JSON.stringify(cancelled),
-    )
-    expect(await act(a.page, a.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'already_final' })
+      expect(await act(b.page, b.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'not_owner' })
+      expect(await act(a.page, a.token, 'cancelOrder', { orderId: 'o-00000000-0000-0000-0000-000000000000' })).toEqual({
+        success: false,
+        error: 'not_found',
+      })
+      // If a bot happened to sell into it, the order is final instead; both are correct.
+      const cancelled = await act(a.page, a.token, 'cancelOrder', { orderId })
+      expect([JSON.stringify({ success: true, data: {} }), JSON.stringify({ success: false, error: 'already_final' })]).toContain(
+        JSON.stringify(cancelled),
+      )
+      expect(await act(a.page, a.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'already_final' })
 
-    // Orders are private: A sees the mirror row, B does not.
-    await until<OrderData>(a.page, a.token, 'orders', { roundId: snap.roundId }, (r) => r.some((o) => o.recordId === orderId))
-    const bView = await query<OrderData>(b.page, b.token, 'orders', { roundId: snap.roundId })
-    expect(bView.some((o) => o.recordId === orderId)).toBe(false)
+      // Orders are private: A sees the mirror row, B does not.
+      await until<OrderData>(a.page, a.token, 'orders', { roundId: snap.roundId }, (r) => r.some((o) => o.recordId === orderId))
+      const bView = await query<OrderData>(b.page, b.token, 'orders', { roundId: snap.roundId })
+      expect(bView.some((o) => o.recordId === orderId)).toBe(false)
+      return true
+    })
   })
 
   dsTest('two users crossing in one batch both fill at one price; portfolios and tape update', async ({ users }) => {
-    dsTest.setTimeout(120_000)
+    dsTest.setTimeout(PHASE_SAFE_TIMEOUT + 120_000)
     const [a, b] = await signedIn(users, 2)
-    const { roundId } = await exchangeSnapshot(a.page, a.token)
 
-    // Long-only: B first buys shares so it has something to sell.
-    const seed = await act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'market', qty: 10 })
-    expect(seed.success).toBe(true)
-    await until<OrderData>(b.page, b.token, 'orders', { roundId }, (r) =>
-      r.some((o) => o.recordId === seed.data!.orderId && o.data.filledQty >= 2),
-    )
+    const { roundId, pair } = await inOneRound(a.page, a.token, 60_000, async (snap) => {
+      const roundId = snap.roundId
+      // Long-only: B first buys shares so it has something to sell.
+      const seed = await act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'market', qty: 10 })
+      if (closed(seed)) return ROLLOVER
+      expect(seed.success).toBe(true)
+      await until<OrderData>(b.page, b.token, 'orders', { roundId }, (r) =>
+        r.some((o) => o.recordId === seed.data!.orderId && o.data.filledQty >= 2),
+      )
 
-    let pair: { a: string; b: string; batchId: number } | null = null
-    for (let attempt = 0; attempt < 3 && !pair; attempt++) {
-      const { last } = await exchangeSnapshot(a.page, a.token)
-      const { lo, hi } = band(last.VOLT)
-      const [ra, rb] = await Promise.all([
-        act(a.page, a.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'limit', qty: 2, limitCents: hi }),
-        act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'sell', type: 'limit', qty: 2, limitCents: lo }),
-      ])
-      expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
-      if (ra.data!.batchId === rb.data!.batchId) {
-        pair = { a: ra.data!.orderId, b: rb.data!.orderId, batchId: ra.data!.batchId }
-      } else {
-        // The two requests straddled a batch boundary; withdraw whatever is left and retry.
-        await act(a.page, a.token, 'cancelOrder', { orderId: ra.data!.orderId })
-        await act(b.page, b.token, 'cancelOrder', { orderId: rb.data!.orderId })
+      let pair: { a: string; b: string; batchId: number } | null = null
+      for (let attempt = 0; attempt < 3 && !pair; attempt++) {
+        const now = await exchangeSnapshot(a.page, a.token)
+        if (now.roundId !== roundId || now.phase !== 'live') return ROLLOVER
+        const { lo, hi } = band(now.last.VOLT)
+        const [ra, rb] = await Promise.all([
+          act(a.page, a.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'limit', qty: 2, limitCents: hi }),
+          act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'sell', type: 'limit', qty: 2, limitCents: lo }),
+        ])
+        if (closed(ra, rb)) return ROLLOVER
+        expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
+        if (ra.data!.batchId === rb.data!.batchId) {
+          pair = { a: ra.data!.orderId, b: rb.data!.orderId, batchId: ra.data!.batchId }
+        } else {
+          // The two requests straddled a batch boundary; withdraw whatever is left and retry.
+          await act(a.page, a.token, 'cancelOrder', { orderId: ra.data!.orderId })
+          await act(b.page, b.token, 'cancelOrder', { orderId: rb.data!.orderId })
+        }
       }
-    }
-    expect(pair, 'both orders acked in the same batch').not.toBeNull()
-    const { batchId } = pair!
+      expect(pair, 'both orders acked in the same batch').not.toBeNull()
+      // The pair's batch must have cleared in this same round; a round end would have cancelled it.
+      if (!(await clearedInRound(a.page, a.token, roundId, pair!.batchId))) return ROLLOVER
+      return { roundId, pair: pair! }
+    })
+    const { batchId } = pair
 
-    const aFills = await until<FillData>(a.page, a.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair!.a))
-    const bFills = await until<FillData>(b.page, b.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair!.b))
-    const fa = aFills.find((f) => f.data.orderId === pair!.a)!
-    const fb = bFills.find((f) => f.data.orderId === pair!.b)!
-    expect(fa.recordId).toBe(`${pair!.a}:${batchId}`)
+    const aFills = await until<FillData>(a.page, a.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair.a))
+    const bFills = await until<FillData>(b.page, b.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair.b))
+    const fa = aFills.find((f) => f.data.orderId === pair.a)!
+    const fb = bFills.find((f) => f.data.orderId === pair.b)!
+    expect(fa.recordId).toBe(`${pair.a}:${batchId}`)
     expect(fa.data.priceCents).toBe(fb.data.priceCents)
 
     const tape = await until<TapeData>(a.page, a.token, 'tape', { roundId, ticker: 'VOLT', batchId }, (r) => r.length === 1)
@@ -303,19 +375,22 @@ dsTest.describe('Exchange API (signed in)', () => {
   })
 
   dsTest('identical simultaneous buys share one batch and one clearing price', async ({ users }) => {
-    dsTest.setTimeout(120_000)
+    dsTest.setTimeout(PHASE_SAFE_TIMEOUT + 120_000)
     const [a, b] = await signedIn(users, 2)
-    const { roundId } = await exchangeSnapshot(a.page, a.token)
 
-    let acks: { batchId: number } | null = null
-    for (let attempt = 0; attempt < 3 && !acks; attempt++) {
-      const params = { ticker: 'ORBT', side: 'buy', type: 'market', qty: 3 }
-      const [ra, rb] = await Promise.all([act(a.page, a.token, 'placeOrder', params), act(b.page, b.token, 'placeOrder', params)])
-      expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
-      if (ra.data!.batchId === rb.data!.batchId) acks = { batchId: ra.data!.batchId }
-    }
-    expect(acks, 'both buys acked in the same batch').not.toBeNull()
-    const { batchId } = acks!
+    const { roundId, batchId } = await inOneRound(a.page, a.token, 30_000, async (snap) => {
+      let acked: number | null = null
+      for (let attempt = 0; attempt < 3 && acked === null; attempt++) {
+        const params = { ticker: 'ORBT', side: 'buy', type: 'market', qty: 3 }
+        const [ra, rb] = await Promise.all([act(a.page, a.token, 'placeOrder', params), act(b.page, b.token, 'placeOrder', params)])
+        if (closed(ra, rb)) return ROLLOVER
+        expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
+        if (ra.data!.batchId === rb.data!.batchId) acked = ra.data!.batchId
+      }
+      expect(acked, 'both buys acked in the same batch').not.toBeNull()
+      if (!(await clearedInRound(a.page, a.token, snap.roundId, acked!))) return ROLLOVER
+      return { roundId: snap.roundId, batchId: acked! }
+    })
 
     // Whatever each got (bots trade too), every fill in that batch has the tape's single price.
     const tape = await until<TapeData>(a.page, a.token, 'tape', { roundId, ticker: 'ORBT', batchId }, (r) => r.length === 1)

@@ -57,13 +57,18 @@ const TABLES = [
      newsId TEXT PRIMARY KEY, roundId TEXT NOT NULL, ticker TEXT NOT NULL, at INTEGER NOT NULL)`,
   // Outbox for the RecordRoom mirror, coalesced by (collection, recordId).
   // `ver` bumps on every rewrite so a flush only deletes the version it sent.
+  // `nextAt` is the earliest time a failed row may be retried (backoff).
   `CREATE TABLE IF NOT EXISTS mirror (
      collection TEXT NOT NULL, recordId TEXT NOT NULL, actor TEXT NOT NULL, data TEXT NOT NULL,
      ver INTEGER NOT NULL, seq INTEGER NOT NULL, prio INTEGER NOT NULL, attempts INTEGER NOT NULL,
+     nextAt INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (collection, recordId))`,
   `CREATE INDEX IF NOT EXISTS mirror_by_prio ON mirror (prio, seq)`,
 ]
 
 export function createTables(sql: SqlLike): void {
   for (const stmt of TABLES) sql.exec(stmt)
+  // A mirror table made before retry backoff existed has no `nextAt` column.
+  const cols = rows<{ name: string }>(sql, `PRAGMA table_info(mirror)`).map((c) => c.name)
+  if (!cols.includes('nextAt')) sql.exec(`ALTER TABLE mirror ADD COLUMN nextAt INTEGER NOT NULL DEFAULT 0`)
 }

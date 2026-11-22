@@ -7,6 +7,11 @@
  * flush. The alarm drains up to MIRROR_WRITES_PER_TICK rows per tick with one
  * parallel fan-out and carries the rest to the next tick.
  *
+ * A failed row is never dropped: losing a fill, an order status, a portfolio,
+ * or a round's `done` record would leave RecordRoom wrong for good. It stays
+ * queued and is retried with per-row exponential backoff (1 s doubling to a
+ * 64 s ceiling), with a warning per failure, until RecordRoom accepts it.
+ *
  * Every write is `records.create` with a server-generated recordId, which
  * upserts (merges) when the id exists. Retrying a row can therefore never
  * duplicate a fill, an order, or a print.
@@ -24,7 +29,8 @@ import type {
   TapeRecord,
   TickerRecord,
 } from '../../shared/contracts.js'
-import { MIRROR_MAX_ATTEMPTS, MIRROR_WRITES_PER_TICK } from './config.js'
+import { BATCH_MS } from '../../shared/contracts.js'
+import { MIRROR_BACKOFF_MAX_EXP, MIRROR_WRITES_PER_TICK } from './config.js'
 import { rows, type SqlLike } from './sql.js'
 
 /** Lower drains first: round status, then per-user records, then market history. */
@@ -44,13 +50,24 @@ export function enqueue(sql: SqlLike, item: MirrorItem): void {
     `INSERT INTO mirror (collection, recordId, actor, data, ver, seq, prio, attempts)
      VALUES (?, ?, ?, ?, 1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM mirror), ?, 0)
      ON CONFLICT(collection, recordId) DO UPDATE SET
-       actor = excluded.actor, data = excluded.data, ver = mirror.ver + 1, attempts = 0`,
+       actor = excluded.actor, data = excluded.data, ver = mirror.ver + 1`,
     item.collection, item.recordId, actor, JSON.stringify(item.data), PRIO[item.collection],
   )
 }
 
 export function pendingCount(sql: SqlLike): number {
   return Number((rows<{ n: number }>(sql, `SELECT COUNT(*) AS n FROM mirror`)[0]?.n) ?? 0)
+}
+
+/** Earliest time any queued row may be sent, or null when the queue is empty. */
+export function nextDueAt(sql: SqlLike): number | null {
+  const v = rows<{ t: number | null }>(sql, `SELECT MIN(nextAt) AS t FROM mirror`)[0]?.t
+  return v === null || v === undefined ? null : Number(v)
+}
+
+/** Delay before retry number `attempts + 1` of a row that has failed `attempts` times before. */
+export function backoffMs(attempts: number): number {
+  return BATCH_MS * 2 ** Math.min(attempts, MIRROR_BACKOFF_MAX_EXP)
 }
 
 interface QueuedRow {
@@ -76,24 +93,27 @@ export type MirrorWriter = (w: MirrorWrite) => Promise<void>
 export interface FlushResult {
   sent: number
   failed: number
-  dropped: number
   left: number
 }
 
 /**
- * Send up to `cap` queued rows. A row is removed only if it still has the
- * version that was sent; if it changed during the await, the newer data stays
- * queued for the next flush.
+ * Send up to `cap` queued rows that are due at `now`. A row is removed only if
+ * it still has the version that was sent; if it changed during the await, the
+ * newer data stays queued for the next flush. A failed row stays queued and
+ * waits out its backoff; a rewrite of it keeps the backoff, so an outage is
+ * not hammered.
  */
 export async function flushMirror(
   sql: SqlLike,
   write: MirrorWriter,
-  log: (line: string) => void,
+  warn: (line: string) => void,
+  now: number,
   cap: number = MIRROR_WRITES_PER_TICK,
 ): Promise<FlushResult> {
   const batch = rows<QueuedRow>(
     sql,
-    `SELECT collection, recordId, actor, data, ver, attempts FROM mirror ORDER BY prio, seq LIMIT ?`,
+    `SELECT collection, recordId, actor, data, ver, attempts FROM mirror WHERE nextAt <= ? ORDER BY prio, seq LIMIT ?`,
+    now,
     cap,
   )
   const results = await Promise.allSettled(
@@ -104,7 +124,6 @@ export async function flushMirror(
 
   let sent = 0
   let failed = 0
-  let dropped = 0
   results.forEach((res, i) => {
     const r = batch[i]
     if (res.status === 'fulfilled') {
@@ -114,16 +133,15 @@ export async function flushMirror(
     }
     failed++
     const reason = res.reason instanceof Error ? res.reason.message : String(res.reason)
-    if (r.attempts + 1 >= MIRROR_MAX_ATTEMPTS) {
-      dropped++
-      log(`[exchange] mirror dropped ${r.collection}/${r.recordId} after ${MIRROR_MAX_ATTEMPTS} attempts: ${reason.slice(0, 200)}`)
-      sql.exec(`DELETE FROM mirror WHERE collection = ? AND recordId = ? AND ver = ?`, r.collection, r.recordId, r.ver)
-    } else {
-      sql.exec(
-        `UPDATE mirror SET attempts = attempts + 1 WHERE collection = ? AND recordId = ? AND ver = ?`,
-        r.collection, r.recordId, r.ver,
-      )
-    }
+    const wait = backoffMs(r.attempts)
+    warn(
+      `[exchange] mirror write failed (attempt ${r.attempts + 1}) ${r.collection}/${r.recordId}, retry in ${wait / 1000}s: ${reason.slice(0, 200)}`,
+    )
+    // Any version: the backoff belongs to the record, not to the data that failed.
+    sql.exec(
+      `UPDATE mirror SET attempts = ?, nextAt = ? WHERE collection = ? AND recordId = ?`,
+      r.attempts + 1, now + wait, r.collection, r.recordId,
+    )
   })
-  return { sent, failed, dropped, left: pendingCount(sql) }
+  return { sent, failed, left: pendingCount(sql) }
 }

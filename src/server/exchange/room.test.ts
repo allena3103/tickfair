@@ -46,7 +46,7 @@ interface Write {
   data: Record<string, unknown>
 }
 
-function setup() {
+function setup(opts: { down?: () => boolean } = {}) {
   const db = memoryDb()
   const sockets: FakeWs[] = []
   let alarm: number | null = null
@@ -78,6 +78,7 @@ function setup() {
           const body = (await req.json()) as { tool: string; params: { collection: string; recordId: string; data: Record<string, unknown> } }
           expect(body.tool).toBe('records.create')
           expect(req.headers.get('X-App-Action')).toBe('true')
+          if (opts.down?.()) return Response.json({ success: false, error: 'unavailable' }, { status: 503 })
           writes.push({ actor: req.headers.get('X-User-Id'), ...body.params })
           return Response.json({ success: true, data: {} })
         },
@@ -202,6 +203,39 @@ describe('ExchangeRoom (DO integration)', () => {
     // The next visitor starts a fresh round.
     await h.connect()
     expect(h.getAlarm()).not.toBeNull()
+  }, 30_000)
+
+  it('a RecordRoom outage longer than the round loses nothing: the alarm keeps retrying until delivery', async () => {
+    let down = true
+    const h = setup({ down: () => down })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ws = await h.connect()
+    const roundId = (ws.sent[1] as { roundId: string }).roundId
+    const order = await h.post('/exchange/order', {
+      userId: 'trader-1',
+      displayName: 'Trader One',
+      params: { ticker: 'ORBT', side: 'buy', type: 'market', qty: 5 },
+    })
+    const orderId = (order.json.data as { orderId: string }).orderId
+    // Everyone leaves; the round ends and the room goes idle (5 min) while RecordRoom is still down.
+    // fireAlarm throws if no alarm is armed, so this also proves queued rows keep the alarm alive.
+    ws.readyState = 3
+    while (Date.now() < T0 + 7 * 60_000) await h.fireAlarm()
+    expect(h.writes).toEqual([])
+    expect(warn.mock.calls.some(([l]) => /mirror write failed \(attempt [6-9]\) rounds\//.test(String(l)))).toBe(true)
+    // Idle now (no sockets for 7 min, round in its break), yet the queued rows keep an alarm armed.
+    expect((h.room as any).core.isIdle(Date.now(), 0)).toBe(true)
+    expect(h.getAlarm()).not.toBeNull()
+
+    down = false
+    let n = 0
+    while (h.getAlarm() !== null && n++ < 2_000) await h.fireAlarm()
+    const lastRound = h.writes.filter((w) => w.collection === 'rounds' && w.recordId === roundId).at(-1)!
+    expect(lastRound.data.status).toBe('done')
+    expect(h.writes.some((w) => w.collection === 'fills' && w.recordId.startsWith(`${orderId}:`) && w.actor === 'trader-1')).toBe(true)
+    expect(h.writes.find((w) => w.collection === 'orders' && w.recordId === orderId)).toBeDefined()
+    expect(h.db.sql.exec(`SELECT COUNT(*) AS n FROM mirror`).toArray()[0]).toEqual({ n: 0 })
+    warn.mockRestore()
   }, 30_000)
 
   it('unknown paths and GETs are 404', async () => {

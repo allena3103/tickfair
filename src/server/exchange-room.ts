@@ -26,7 +26,7 @@ import { BATCH_MS, type ExchangeServerMsg } from '../shared/contracts.js'
 import type { Env } from '../../worker.js'
 import { roundDurations, type DurationEnv } from './exchange/config.js'
 import { ExchangeCore } from './exchange/core.js'
-import { flushMirror, pendingCount, type MirrorWrite } from './exchange/mirror.js'
+import { flushMirror, nextDueAt, type MirrorWrite } from './exchange/mirror.js'
 
 const WS_OPEN = 1
 
@@ -87,7 +87,9 @@ export class ExchangeRoom extends BaseRoom<Env> {
 
     // Re-arm before the slow mirror flush, so a failed flush can't stop the clock.
     let at = this.core.nextWakeAt(idle)
-    if (pendingCount(this.sql) > 0) at = Math.min(at ?? Number.POSITIVE_INFINITY, now + BATCH_MS)
+    // Queued mirror rows keep the alarm going (even while idle) until they are delivered.
+    const due = nextDueAt(this.sql)
+    if (due !== null) at = Math.min(at ?? Number.POSITIVE_INFINITY, Math.max(due, now + BATCH_MS))
     if (at !== null) await this.state.storage.setAlarm(at)
 
     await this.flush()
@@ -106,8 +108,8 @@ export class ExchangeRoom extends BaseRoom<Env> {
     if (this.flushing) return
     this.flushing = true
     try {
-      const r = await flushMirror(this.sql, (w) => this.writeRecord(w), (line) => console.error(line))
-      if (r.failed > 0) console.warn(`[exchange] mirror ${r.failed} failed, ${r.left} queued`)
+      const r = await flushMirror(this.sql, (w) => this.writeRecord(w), (line) => console.warn(line), Date.now())
+      if (r.failed > 0) console.warn(`[exchange] mirror ${r.failed} failed this tick, ${r.left} queued`)
     } finally {
       this.flushing = false
     }

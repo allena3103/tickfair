@@ -34,8 +34,11 @@ export const IDLE_PAUSE_MS = 5 * 60_000
 
 /** Mirror budget per alarm tick (SPIKE S3 / LESSONS 7). */
 export const MIRROR_WRITES_PER_TICK = 40
-/** A mirror row that fails this many times in a row is logged and dropped. */
-export const MIRROR_MAX_ATTEMPTS = 5
+/**
+ * A failed mirror row is never dropped. It is retried after
+ * BATCH_MS * 2^min(attempts, MIRROR_BACKOFF_MAX_EXP): 1 s, 2 s, ... capped at 64 s.
+ */
+export const MIRROR_BACKOFF_MAX_EXP = 6
 /** `tickers.lastCents` is mirrored every N batches; live prices go over the WS. */
 export const TICKER_MIRROR_EVERY = 5
 
