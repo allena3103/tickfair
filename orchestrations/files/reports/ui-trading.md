@@ -1,4 +1,26 @@
-# Report: ui-trading (wave 2), review round 2
+# Report: ui-trading (wave 2), evaluator fixes
+
+**Evaluator fixes, on code commit `123426e`,** rebased onto `agent/exchange` at `5d96efe`. The rebase was clean; my earlier commits were already merged there. Every check was rerun by me on that commit.
+
+| Bug | Fix | Test |
+|-----|-----|------|
+| **BUG-3** An old ticket result (for example the server's `invalid_qty` text "Enter a whole number of shares, up to 100,000.") stayed visible after editing the ticket. | `OrderTicket.tsx`: every input (side, type, quantity, price) goes through `edited(setter)`, which also resets the last result to idle, unless an order is mid-send. Both the error and the "Order in for batch #…" line clear on any edit. A ticker switch already reset it. | New e2e in `tests/smoke.spec.ts`: `'an old ticket error clears as soon as you edit the ticket (BUG-3)'`. On the real server it sends 200,000 shares (rejected as `invalid_qty` before reaching the room, so no order is created), checks the exact error text, then checks that each kind of edit (quantity, price, side, type) removes it. It waits for a live round first (LESSONS 25). **Negative check:** with the reset line removed, this test fails (`toHaveCount` 0, exit 1); with the fix it passes (exit 0). |
+| **BUG-5a** The chart meta read "1 batches". | New `plural(n, one, many)` in `logic.ts`, used for the chart meta and its `aria-label`. I checked the other count labels; none were wrong. | Unit: `plural (BUG-5a)` (1 batch, 0 batches, 1,200 batches), and `views.test.tsx` renders the chart with one point, asserting `1 batch` and no `1 batches`. |
+
+The fairness link still points to `/#how-it-works`. I didn't edit any landing files.
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 266 passed (266)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `28 passed`, `1 skipped` (opt-in screenshots), 1.0 min |
+
+Files changed: `src/components/trading/OrderTicket.tsx`, `src/components/trading/PriceChart.tsx`, `src/components/trading/logic.ts`, `src/components/trading/logic.test.ts`, `src/components/trading/views.test.tsx`, `tests/smoke.spec.ts`. All are in my ownership list. No open requests for the director.
+
+---
+
+## Review round 2
 
 **Review round 2, on code commit `1206662`.** Every check was rerun by me on that commit.
 
@@ -140,6 +162,7 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Review round 2 code commit: `1206662`. This report is committed on top of it.
+- Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`. This report is committed on top of it.
+- Review round 2 code commit: `1206662`.
 - Review round 1 code commit: `e48f195`.
 - Round 2 code commit: `c792ecb`, rebased on `agent/exchange` at `cfc6d6d`. (Round 1 code commit was `462f1a4`, before the rebase.)
