@@ -16,10 +16,10 @@ The director updates this file as each feature moves through the loop. Newest no
 | Worker | Wave | State | Check runs | Review rounds | Merged | Notes |
 |--------|------|-------|------------|---------------|--------|-------|
 | foundation | 0 | **merged** | builder ✓, director ✓ (tsc, lint, 20 unit, 11 e2e, build) | 2 (R1 FAIL: unapproved codes, resolved by a director spec update; R2 PASS) | ✓ | App registered `app_01M80AVDTA8NPYNJWXARJYZRPG`. Spike S1–S3 pass locally; prod subrequest cap still unknown. |
-| engine-core | 1 | in review (R1) | – | – | – | |
-| market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 43 unit, 11 e2e) | 1 (PASS) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
-| news | 1 | building | – | – | – | |
-| ui-shell | 1 | building | – | – | – | |
+| engine-core | 1 | in review (R2, test speed-up) | – | – | – | |
+| market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
+| news | 1 | in review (R2) | – | – | – | |
+| ui-shell | 1 | in review (R1) | – | – | – | |
 | exchange-runtime | 2 | not started | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
@@ -32,3 +32,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - Director contract changes: `invalid_side`/`invalid_type` reject codes, `NewsDraw` in `contracts.ts`, and market orders store their band-edge limit. The spike gotchas are recorded in `LESSONS.md`.
 - Wave 1: market-sim merged; full suite green.
 - Security fix from news's finding: the scaffold's browser integration proxy forwarded any unlisted integration billed to the owner, so any signed-in member could spend the owner's credits through Claude. Now every owner-billed integration is refused for browsers (403), and cron trigger, pause, and resume are admin-only. Commit `86ca7aa`.
+- engine-core R1 PASS and merged. A follow-up made its property test about 10x faster, because slow tests were failing under the machine load of 4 parallel builders. That follow-up is in review R2. news R1 FAIL (a race in the concurrent breakingNews rate limit; a sentence counter that missed closing quotes), fixed and in R2.
+- The user chose to run wave 2 **sequentially** (session usage meter at 70%): exchange-runtime first, then ui-trading.
