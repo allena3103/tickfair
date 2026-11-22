@@ -81,22 +81,22 @@ describe('price band and market orders', () => {
     const a = withShares(emptyAccount(10_000_000_000), 1_000)
     const at = (last: number, side: Side, limitCents: number) =>
       checkAndReserve(a, { side, ticker: 'ORBT', qty: 1, limitCents }, { lastCents: last, openOrders: [] })
+    const rejectedBand = (r: ReturnType<typeof at>) => !r.ok && r.code === 'outside_band'
+    // Plain checks collected into one assertion: 160k expect() calls are too slow.
+    const bad: string[] = []
     for (let last = 1; last <= 20_000; last++) {
       const hi = marketLimit('buy', last)
       const lo = marketLimit('sell', last)
       // Edges are the true band edges rounded inward to whole cents.
-      expect(hi * 10_000).toBeLessThanOrEqual(last * 11_000)
-      expect((hi + 1) * 10_000).toBeGreaterThan(last * 11_000)
-      if (lo > 1) {
-        expect(lo * 10_000).toBeGreaterThanOrEqual(last * 9_000)
-        expect((lo - 1) * 10_000).toBeLessThan(last * 9_000)
-      }
-      expect(at(last, 'buy', hi).ok).toBe(true)
-      expect(at(last, 'sell', lo).ok).toBe(true)
-      expect(at(last, 'buy', hi + 1)).toEqual({ ok: false, code: 'outside_band' })
-      if (lo > 1) expect(at(last, 'sell', lo - 1)).toEqual({ ok: false, code: 'outside_band' })
+      if (!(hi * 10_000 <= last * 11_000 && (hi + 1) * 10_000 > last * 11_000)) bad.push(`${last}: hi ${hi}`)
+      if (lo > 1 && !(lo * 10_000 >= last * 9_000 && (lo - 1) * 10_000 < last * 9_000)) bad.push(`${last}: lo ${lo}`)
+      if (!at(last, 'buy', hi).ok) bad.push(`${last}: buy at hi rejected`)
+      if (!at(last, 'sell', lo).ok) bad.push(`${last}: sell at lo rejected`)
+      if (!rejectedBand(at(last, 'buy', hi + 1))) bad.push(`${last}: hi+1 accepted`)
+      if (lo > 1 && !rejectedBand(at(last, 'sell', lo - 1))) bad.push(`${last}: lo-1 accepted`)
     }
-  })
+    expect(bad).toEqual([])
+  }, 30_000)
 
   it('rejects limits just outside the band, accepts the edges', () => {
     const a = emptyAccount(10_000_000)
