@@ -20,7 +20,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | market-sim | 1 | **merged** | builder ✓, director ✓ (tsc, lint, 85 unit, 11 e2e) | 3 (R1 PASS; R2 PASS + 1 minor; R3 PASS after a follow-up to fix flaky slow tests) | ✓ | Bot inventory and seeding handed to exchange-runtime (LESSONS 11–13). |
 | news | 1 | **merged** | – | – | – | |
 | ui-shell | 1 | **merged** | – | – | – | |
-| exchange-runtime | 2 | fixing R1 findings | – | – | – | |
+| exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
 | review-money | 2b | not started | – | – | – | |
 | evaluator | final | not started | – | – | – | |
@@ -42,3 +42,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - User decision: no paid LLM calls on dev/test servers unless `NEWS_LLM_IN_DEV=true` (commit `27fe7bb`, with unit tests). The director's own code changes (proxy fix, cron lockdown, LLM gate, landing polish) go through an independent reviewer too.
 - Director changes reviewed: R1 PASS with minors (dead `anonymous` flag, stale comment, unused import), fixed in `8a84170`; R2 PASS with no findings. Full suite: 174 unit, 16 e2e, build OK.
 - exchange-runtime report in. Director checks: tsc, lint, and 226 unit tests pass. e2e was flaky: 4 failures when a run landed in the round break. Review R1 FAIL: (1) e2e tests depend on wall-clock round phase, (2) the mirror drops rows after 5 quick retries, which could leave a round stuck `live`, (3) a weak retry test. All three were sent back to the builder.
+- exchange-runtime merged after 3 rounds (R1 FAIL; R2 PASS + 1 fix; R3 PASS). The director added `bad_request` to the shock contract. Full suite on `agent/exchange`: 230 unit, 22 e2e (1 skipped until `/trade` exists), build OK.
+- Next: ui-trading (sequential).
