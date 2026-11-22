@@ -8,14 +8,14 @@ Branch `agent/exchange-runtime`, rebased onto `agent/exchange` at `ef0403b` (ui-
 
 ## 1. Built and verified
 
-All commands run on the final commit, port 5186. Review round 1 fixes are in §8.
+All commands run on the final commit, port 5186. Review round 1 fixes are in §8, round 2 in §9.
 
 | Item | Proof | Result |
 |---|---|---|
 | Typecheck | `npx tsc --noEmit` | exit 0, no output |
 | Lint | `npm run lint` (eslint .) | exit 0, no output |
-| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 228 passed (228)` |
-| E2E (3 runs) | `npx deepspace test run --port 5186` (smoke + api), three times on the final code | each exit 0: `21 passed (50.7s)`, `21 passed (44.7s)`, `21 passed (45.0s)`; `1 skipped` each (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
+| Unit (all) | `npx deepspace test run unit --port 5186` | exit 0: `Test Files 15 passed (15)`, `Tests 230 passed (230)` |
+| E2E | `npx deepspace test run --port 5186` (smoke + api), twice on the final code (round 2) | each exit 0: `21 passed (57.5s)`, `21 passed (52.0s)`; `1 skipped` each. Assumes default round durations: no `EXCHANGE_ROUND_*` overrides in `.dev.vars` (ui-shell's `/trade is gated when signed out`, which waits for ui-trading's page); collab.spec.ts not in this run (not mine) |
 | Build | `npx vite build` | exit 0, `✓ built`; the worker bundle does not contain `node:sqlite` |
 | SQLite tables `meta, accounts, holdings, book, batches, fundamentals, bots` (+ `shocks` for newsId dedupe, `mirror` outbox) created on construct | `exchange/sql.ts`; every test constructs a fresh room | pass |
 | Intake: lazy enroll with `START_CASH_CENTS`, `rate_limited` at `MAX_ORDERS_PER_BATCH` per trader per batch, `checkAndReserve`, server `orderId` (`o-<uuid>`), current `batchId`, `PlaceOrderData` | core.test `intake` (6 cases + 8 reject codes); api.spec `typed rejections…`, `a valid order returns orderId and batchId…` | pass |
@@ -127,7 +127,7 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
 
 ## 7. Branch and commit
 
-`agent/exchange-runtime`. Review round 1 code at `88fc4c1` (first-pass code was `18a8152`); this report is updated in the commit right after it (the branch head). Rebased on `ef0403b`; `agent/exchange` has since gained `b19953a` (PROGRESS only), so no conflicts are expected.
+`agent/exchange-runtime`. Review round 2 code at `cff53c1` (round 1 `88fc4c1`, first pass `18a8152`); this report is updated in the commit right after it (the branch head). Rebased on `ef0403b`; `agent/exchange` has since gained `b19953a` (PROGRESS only), so no conflicts are expected.
 
 ## 8. Review round 1 fixes
 
@@ -152,3 +152,19 @@ Not committed, local only: `.deepspace/manual-run.mjs` and `.deepspace/rollover-
   - `npm run lint`: exit 0.
   - Unit (`test run unit --port 5186`): 228 of 228 passed.
   - E2E (`test run --port 5186`) ×3: 21 passed and 1 skipped each time, all exit 0.
+
+## 9. Review round 2 fixes
+
+- **F1 (a shock-first wake never went idle).**
+  - The bug: when a fresh room's first wake was `POST /exchange/shock`, `wake(now, false)` opened a round without writing `lastActivityAt`. `isIdle` then compared against `NaN`, so the room never idled, and bots and the mirror ran forever with no sockets.
+  - Both sides are fixed:
+    - `wake` now writes `lastActivityAt` whenever it creates meta, whatever woke it.
+    - `isIdle` treats a missing or non-finite value as 0 (long ago).
+  - Tests (core.test `shock-first wake`): one covers a shock-first wake with no sockets and no orders. It is live, not idle at `IDLE_PAUSE_MS - 1`, idle at `IDLE_PAUSE_MS`, and then its only wake is the round end. The other covers a deleted `lastActivityAt` counting as idle, but not with a socket open. Both tests fail on the round-1 code and pass now.
+- **F2 (doc).** The e2e suite assumes the default round durations (`ROUND_LIVE_MS` 15 min, `ROUND_BREAK_MS` 2 min): no `EXCHANGE_ROUND_LIVE_MS` / `EXCHANGE_ROUND_BREAK_MS` overrides in `.dev.vars`. This is stated in a comment at the top of the exchange section of `tests/api.spec.ts`. The timeouts are sized from `ROUND_BREAK_MS`, and the two-user test needs a live round with at least 60 s left.
+- **Checks on the final code:**
+  - `npx tsc --noEmit`: exit 0.
+  - `npm run lint`: exit 0.
+  - Unit (`test run unit --port 5186`): 230 of 230 passed.
+  - E2E (`test run --port 5186`) ×2: 21 passed and 1 skipped each time, all exit 0.
+  - `.dev.vars` had no `EXCHANGE_ROUND_*` lines.
