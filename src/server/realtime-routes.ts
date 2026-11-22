@@ -121,6 +121,17 @@ async function resolveDocsYjsRole(
 }
 
 export function registerRealtimeRoutes(app: Hono<AppContext>): void {
+  // Exchange market-data stream. Same wsRoute pattern: identity only from a
+  // verified JWT, client identity params/headers stripped, no token =
+  // anonymous spectator. Only the singleton room name is accepted, so a client
+  // cannot spin up arbitrary ExchangeRoom instances.
+  app.get('/ws/exchange/:roomId', async (c) => {
+    if (c.req.param('roomId') !== `exchange:${c.env.DEEPSPACE_APP_ID}`) {
+      return new Response('Not found', { status: 404 })
+    }
+    return wsRoute((env) => env.EXCHANGE_ROOMS)(c)
+  })
+
   app.get(
     '/ws/:roomId',
     wsRoute((env) => env.RECORD_ROOMS),
