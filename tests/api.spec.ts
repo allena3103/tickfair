@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { test as dsTest, loadAllTestAccounts } from 'deepspace/testing'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 test.describe('API tests', () => {
   test('auth proxy forwards to auth worker', async ({ request }) => {
@@ -74,5 +76,251 @@ dsTest.describe('News API (signed in)', () => {
       data: {},
     })
     expect(res.status()).toBe(403)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Exchange: order entry, cancel, two-user batch, simultaneous fairness.
+// Bots trade too, so assertions are about rules (one price per batch, typed
+// rejections, ownership), never exact quantities. Tokens only ever travel as
+// an Authorization header or WS query param; nothing is logged.
+// ---------------------------------------------------------------------------
+
+const APP_ID = /DEEPSPACE_APP_ID\s*=\s*"([^"]+)"/.exec(
+  readFileSync(fileURLToPath(new URL('../wrangler.toml', import.meta.url)), 'utf8'),
+)?.[1] as string
+
+type Rec<T> = { recordId: string; data: T }
+type ActResult = { success: boolean; error?: string; data?: { orderId: string; batchId: number } }
+
+async function act(page: Page, token: string, name: string, params: Record<string, unknown>): Promise<ActResult> {
+  const res = await page.request.post(`/api/actions/${name}`, { headers: { Authorization: `Bearer ${token}` }, data: params })
+  expect(res.status()).toBe(200)
+  return (await res.json()) as ActResult
+}
+
+/** One RecordRoom query over the app's own WebSocket, as the signed-in user (RBAC applies). */
+async function query<T>(page: Page, token: string, collection: string, where: Record<string, unknown>): Promise<Rec<T>[]> {
+  return page.evaluate(
+    ({ appId, token, collection, where }) =>
+      new Promise<Rec<T>[]>((resolve, reject) => {
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+        const ws = new WebSocket(`${proto}://${location.host}/ws/app:${appId}?token=${encodeURIComponent(token)}`)
+        const timer = setTimeout(() => {
+          ws.close()
+          reject(new Error('query timeout'))
+        }, 10_000)
+        ws.onopen = () =>
+          ws.send(JSON.stringify({ type: 'core.subscribe', payload: { subscriptionId: 'q', query: { collection, where, limit: 500 } } }))
+        ws.onmessage = (ev) => {
+          const msg = JSON.parse(String(ev.data))
+          if (msg.type === 'core.query_result' && msg.payload?.subscriptionId === 'q') {
+            clearTimeout(timer)
+            ws.close()
+            resolve(msg.payload.records as Rec<T>[])
+          }
+        }
+      }),
+    { appId: APP_ID, token, collection, where },
+  )
+}
+
+/** Poll a query until `ok` holds (the mirror trails the batch by a tick or two). */
+async function until<T>(
+  page: Page,
+  token: string,
+  collection: string,
+  where: Record<string, unknown>,
+  ok: (r: Rec<T>[]) => boolean,
+): Promise<Rec<T>[]> {
+  for (let i = 0; i < 40; i++) {
+    const r = await query<T>(page, token, collection, where)
+    if (ok(r)) return r
+    await page.waitForTimeout(500)
+  }
+  throw new Error(`timed out waiting on ${collection} ${JSON.stringify(where)}`)
+}
+
+type Snapshot = { roundId: string; phase: string; batchId: number; last: Record<string, number> }
+
+/** The exchange stream's first message (ex.snapshot). */
+async function exchangeSnapshot(page: Page, token: string): Promise<Snapshot> {
+  return page.evaluate(
+    ({ appId, token }) =>
+      new Promise<Snapshot>((resolve, reject) => {
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+        const ws = new WebSocket(`${proto}://${location.host}/ws/exchange/exchange:${appId}?token=${encodeURIComponent(token)}`)
+        const timer = setTimeout(() => {
+          ws.close()
+          reject(new Error('snapshot timeout'))
+        }, 10_000)
+        ws.onmessage = (ev) => {
+          const msg = JSON.parse(String(ev.data))
+          if (msg.type === 'ex.snapshot') {
+            clearTimeout(timer)
+            ws.close()
+            resolve(msg as Snapshot)
+          }
+        }
+      }),
+    { appId: APP_ID, token },
+  )
+}
+
+/** ±10% band of `last`, rounded inward (engine-core's priceBand rule). */
+function band(last: number): { lo: number; hi: number } {
+  return { lo: Math.ceil((last * 9_000) / 10_000), hi: Math.floor((last * 11_000) / 10_000) }
+}
+
+type OrderData = { status: string; filledQty: number; batchId: number }
+type FillData = { userId: string; orderId: string; priceCents: number; batchId: number; ticker: string }
+type PortfolioData = { userId: string; cashCents: number; holdings: Record<string, number> }
+type TapeData = { clearCents: number; volume: number; batchId: number }
+
+async function signedIn(users: (n: number) => Promise<{ page: Page }[]>, n: number) {
+  const list = await users(n)
+  await Promise.all(list.map((u) => u.page.goto('/home')))
+  const tokens = await Promise.all(list.map((u) => bearerFor(u.page)))
+  for (const t of tokens) expect(t).not.toBe('')
+  return list.map((u, i) => ({ page: u.page, token: tokens[i] }))
+}
+
+test.describe('Exchange API (signed out)', () => {
+  for (const name of ['placeOrder', 'cancelOrder']) {
+    test(`${name} without auth is 401`, async ({ request }) => {
+      const res = await request.post(`/api/actions/${name}`, {
+        data: { ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: 12_000, orderId: 'o-x' },
+      })
+      expect(res.status()).toBe(401)
+    })
+  }
+})
+
+dsTest.describe('Exchange API (signed in)', () => {
+  dsTest.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts')
+
+  dsTest('typed rejections for bad ticker, qty, price, band, and insufficient cash', async ({ users }) => {
+    const [a] = await signedIn(users, 1)
+    const snap = await exchangeSnapshot(a.page, a.token)
+    expect(snap.phase).toBe('live')
+    const last = snap.last.ORBT
+    const cases: [Record<string, unknown>, string][] = [
+      [{ ticker: 'AAPL', side: 'buy', type: 'limit', qty: 1, limitCents: last }, 'invalid_ticker'],
+      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 0, limitCents: last }, 'invalid_qty'],
+      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1.5, limitCents: last }, 'invalid_qty'],
+      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: -1 }, 'invalid_price'],
+      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 1, limitCents: last * 3 }, 'outside_band'],
+      // 10,000 shares at ~$100+ is far more than $100k.
+      [{ ticker: 'ORBT', side: 'buy', type: 'limit', qty: 10_000, limitCents: last }, 'insufficient_cash'],
+    ]
+    for (const [params, code] of cases) {
+      expect(await act(a.page, a.token, 'placeOrder', params), JSON.stringify(params)).toEqual({ success: false, error: code })
+    }
+  })
+
+  dsTest('a valid order returns orderId and batchId; only its owner can cancel or see it', async ({ users }) => {
+    const [a, b] = await signedIn(users, 2)
+    const snap = await exchangeSnapshot(a.page, a.token)
+    // A resting bid at the bottom of the band, so it is still open when we cancel it.
+    const placed = await act(a.page, a.token, 'placeOrder', {
+      ticker: 'CURA', side: 'buy', type: 'limit', qty: 1, limitCents: band(snap.last.CURA).lo,
+    })
+    expect(placed.success).toBe(true)
+    expect(placed.data?.orderId).toMatch(/^o-/)
+    expect(Number.isInteger(placed.data?.batchId)).toBe(true)
+    const orderId = placed.data!.orderId
+
+    expect(await act(b.page, b.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'not_owner' })
+    expect(await act(a.page, a.token, 'cancelOrder', { orderId: 'o-00000000-0000-0000-0000-000000000000' })).toEqual({
+      success: false,
+      error: 'not_found',
+    })
+    // If a bot happened to sell into it, the order is final instead; both are correct.
+    const cancelled = await act(a.page, a.token, 'cancelOrder', { orderId })
+    expect([JSON.stringify({ success: true, data: {} }), JSON.stringify({ success: false, error: 'already_final' })]).toContain(
+      JSON.stringify(cancelled),
+    )
+    expect(await act(a.page, a.token, 'cancelOrder', { orderId })).toEqual({ success: false, error: 'already_final' })
+
+    // Orders are private: A sees the mirror row, B does not.
+    await until<OrderData>(a.page, a.token, 'orders', { roundId: snap.roundId }, (r) => r.some((o) => o.recordId === orderId))
+    const bView = await query<OrderData>(b.page, b.token, 'orders', { roundId: snap.roundId })
+    expect(bView.some((o) => o.recordId === orderId)).toBe(false)
+  })
+
+  dsTest('two users crossing in one batch both fill at one price; portfolios and tape update', async ({ users }) => {
+    dsTest.setTimeout(120_000)
+    const [a, b] = await signedIn(users, 2)
+    const { roundId } = await exchangeSnapshot(a.page, a.token)
+
+    // Long-only: B first buys shares so it has something to sell.
+    const seed = await act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'market', qty: 10 })
+    expect(seed.success).toBe(true)
+    await until<OrderData>(b.page, b.token, 'orders', { roundId }, (r) =>
+      r.some((o) => o.recordId === seed.data!.orderId && o.data.filledQty >= 2),
+    )
+
+    let pair: { a: string; b: string; batchId: number } | null = null
+    for (let attempt = 0; attempt < 3 && !pair; attempt++) {
+      const { last } = await exchangeSnapshot(a.page, a.token)
+      const { lo, hi } = band(last.VOLT)
+      const [ra, rb] = await Promise.all([
+        act(a.page, a.token, 'placeOrder', { ticker: 'VOLT', side: 'buy', type: 'limit', qty: 2, limitCents: hi }),
+        act(b.page, b.token, 'placeOrder', { ticker: 'VOLT', side: 'sell', type: 'limit', qty: 2, limitCents: lo }),
+      ])
+      expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
+      if (ra.data!.batchId === rb.data!.batchId) {
+        pair = { a: ra.data!.orderId, b: rb.data!.orderId, batchId: ra.data!.batchId }
+      } else {
+        // The two requests straddled a batch boundary; withdraw whatever is left and retry.
+        await act(a.page, a.token, 'cancelOrder', { orderId: ra.data!.orderId })
+        await act(b.page, b.token, 'cancelOrder', { orderId: rb.data!.orderId })
+      }
+    }
+    expect(pair, 'both orders acked in the same batch').not.toBeNull()
+    const { batchId } = pair!
+
+    const aFills = await until<FillData>(a.page, a.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair!.a))
+    const bFills = await until<FillData>(b.page, b.token, 'fills', { roundId, batchId }, (r) => r.some((f) => f.data.orderId === pair!.b))
+    const fa = aFills.find((f) => f.data.orderId === pair!.a)!
+    const fb = bFills.find((f) => f.data.orderId === pair!.b)!
+    expect(fa.recordId).toBe(`${pair!.a}:${batchId}`)
+    expect(fa.data.priceCents).toBe(fb.data.priceCents)
+
+    const tape = await until<TapeData>(a.page, a.token, 'tape', { roundId, ticker: 'VOLT', batchId }, (r) => r.length === 1)
+    expect(tape[0].recordId).toBe(`${roundId}:VOLT:${batchId}`)
+    expect(tape[0].data.clearCents).toBe(fa.data.priceCents)
+    expect(tape[0].data.volume).toBeGreaterThan(0)
+
+    // Portfolios are public: A can read both, and both moved off the starting $100k.
+    const aId = fa.data.userId
+    const bId = fb.data.userId
+    const pfs = await until<PortfolioData>(a.page, a.token, 'portfolios', { roundId }, (r) =>
+      r.some((p) => p.data.userId === aId && (p.data.holdings.VOLT ?? 0) >= 2) && r.some((p) => p.data.userId === bId),
+    )
+    expect(pfs.find((p) => p.data.userId === aId)!.data.cashCents).toBeLessThan(10_000_000)
+    expect(pfs.find((p) => p.data.userId === bId)!.data.cashCents).not.toBe(10_000_000)
+  })
+
+  dsTest('identical simultaneous buys share one batch and one clearing price', async ({ users }) => {
+    dsTest.setTimeout(120_000)
+    const [a, b] = await signedIn(users, 2)
+    const { roundId } = await exchangeSnapshot(a.page, a.token)
+
+    let acks: { batchId: number } | null = null
+    for (let attempt = 0; attempt < 3 && !acks; attempt++) {
+      const params = { ticker: 'ORBT', side: 'buy', type: 'market', qty: 3 }
+      const [ra, rb] = await Promise.all([act(a.page, a.token, 'placeOrder', params), act(b.page, b.token, 'placeOrder', params)])
+      expect(ra.success && rb.success, JSON.stringify([ra, rb])).toBe(true)
+      if (ra.data!.batchId === rb.data!.batchId) acks = { batchId: ra.data!.batchId }
+    }
+    expect(acks, 'both buys acked in the same batch').not.toBeNull()
+    const { batchId } = acks!
+
+    // Whatever each got (bots trade too), every fill in that batch has the tape's single price.
+    const tape = await until<TapeData>(a.page, a.token, 'tape', { roundId, ticker: 'ORBT', batchId }, (r) => r.length === 1)
+    const fa = await until<FillData>(a.page, a.token, 'fills', { roundId, batchId, ticker: 'ORBT' }, (r) => r.length > 0)
+    const fb = await until<FillData>(b.page, b.token, 'fills', { roundId, batchId, ticker: 'ORBT' }, (r) => r.length > 0)
+    for (const f of [...fa, ...fb]) expect(f.data.priceCents).toBe(tape[0].data.clearCents)
   })
 })
