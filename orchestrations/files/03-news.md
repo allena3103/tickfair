@@ -49,3 +49,11 @@ The shock's effect on prices (exchange-runtime), news UI (ui-shell), and `src/en
 - [ ] Locally, a triggered `news` task produces a `news` record visible via `useQuery('news')` (screenshot or query output), or a logged skip with its reason.
 - [ ] No client path can trigger a paid call. List every caller of `callLLM` in the report.
 - [ ] Final report per `BRIEF.md`.
+
+## Director decisions made during the build
+
+- **Seed for the firing rule and draw:** the per-minute RNG seed includes a random server-side salt, so players can't predict which minutes fire or which way the news goes. Not being able to replay a run from the minute is an accepted cost. (This overrides the "seeded per minute" wording in step 3.)
+- **No `serverOnly` flag:** the director changed the browser integration proxy (`src/server/http-routes.ts`, director-owned, commit `86ca7aa`) to refuse every owner-billed integration for browsers. `src/integrations.ts` just lists `anthropic: { billing: 'developer' }`. api.spec must assert that both signed-in and anonymous browser calls to `/api/integrations/anthropic/chat-completion` get 403.
+- **Cron monitor lockdown (step 6):** applied by the director in `src/server/realtime-routes.ts`.
+- **`breakingNews` registration** in `src/actions/index.ts` is added by the director at merge time, so the builder's diff will not register it.
+- **The one real paid LLM call** is deferred to the director, after exchange-runtime creates live rounds. Acceptance for this task is the skip path plus the mocked-LLM path.
