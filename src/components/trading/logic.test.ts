@@ -156,6 +156,16 @@ describe('chart', () => {
       { batchId: 3, priceCents: 1_020 },
     ])
   })
+  it('sorts by batch (time order) and keeps only the newest 300', () => {
+    // 350 batches arriving in a scrambled order, split across tape and prints.
+    const all = Array.from({ length: 350 }, (_, i) => ({ ticker: 'ORBT' as const, roundId: 'r', batchId: i + 1, clearCents: 1_000 + i }))
+    const scrambled = [...all].sort((x, y) => ((x.batchId * 7919) % 350) - ((y.batchId * 7919) % 350))
+    const pts = chartPoints(scrambled.slice(0, 200), scrambled.slice(200), 'ORBT', 'r')
+    expect(pts).toHaveLength(300)
+    expect(pts[0]).toEqual({ batchId: 51, priceCents: 1_050 })
+    expect(pts[299]).toEqual({ batchId: 350, priceCents: 1_349 })
+    for (let i = 1; i < pts.length; i++) expect(pts[i].batchId).toBeGreaterThan(pts[i - 1].batchId)
+  })
   it('line path handles empty, single, and flat series', () => {
     expect(linePath([], 100, 50)).toBeNull()
     expect(linePath([{ batchId: 1, priceCents: 500 }], 100, 50)?.d).toMatch(/^M100\.0,/)

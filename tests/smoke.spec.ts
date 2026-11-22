@@ -289,12 +289,22 @@ test.describe('trade terminal (signed in)', () => {
   })
 
   test('terminal queries are not re-subscribed on every print (PERF)', async ({ users }, testInfo) => {
-    test.setTimeout(300_000)
+    test.setTimeout(360_000)
     const [a] = await users(1)
     const page = a.page
     type Sub = { subscriptionId: string; query: { collection: string; where?: Record<string, unknown>; orderBy?: string; orderDir?: string; limit?: number } }
     const subs: { at: number; sub: Sub }[] = []
+    const tapeChanges: number[] = []
     page.on('websocket', (ws) => {
+      ws.on('framereceived', (f) => {
+        if (typeof f.payload !== 'string' || !f.payload.includes('core.record_change')) return
+        try {
+          const msg = JSON.parse(f.payload) as { type: string; payload?: { collection?: string } }
+          if (msg.type === 'core.record_change' && msg.payload?.collection === 'tape') tapeChanges.push(Date.now())
+        } catch {
+          // not JSON
+        }
+      })
       ws.on('framesent', (f) => {
         if (typeof f.payload !== 'string' || !f.payload.includes('core.subscribe')) return
         try {
@@ -308,35 +318,53 @@ test.describe('trade terminal (signed in)', () => {
     await page.goto('/trade')
     const terminal = page.getByTestId('trade-terminal')
     await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 20_000 })
-    // Prints only flow in a live round; wait out a break (LESSONS 25).
-    await expect(terminal).toHaveAttribute('data-phase', 'live', { timeout: 200_000 })
+    // Prints only flow in a live round. The 3 s settle plus the 30 s window must
+    // not straddle a round end, so wait for a live phase with at least 50 s left
+    // (waiting out a break or a round that is about to end; LESSONS 25).
+    await expect
+      .poll(
+        async () =>
+          (await terminal.getAttribute('data-phase')) === 'live' &&
+          Number(await terminal.getAttribute('data-phase-ends-at')) - Date.now() > 50_000,
+        { timeout: 240_000, intervals: [1_000] },
+      )
+      .toBe(true)
+    const roundId = await terminal.getAttribute('data-round-id')
     await expect(page.getByTestId('chart-last')).toHaveText(/\d/, { timeout: 15_000 })
     await page.waitForTimeout(3_000) // initial subscriptions settle
+
+    // Counted per query fingerprint, not per subscriptionId, so a re-subscribe
+    // under a fresh id still counts as a repeat of the same query.
+    const fingerprint = (q: Sub['query']) =>
+      JSON.stringify([q.collection, q.where ?? null, q.orderBy ?? null, q.orderDir ?? null, q.limit ?? null])
+    // ui-trading's queries: the chart's tape (has a ticker), orders, fills, portfolios.
+    const groups = {
+      chartTape: (q: Sub['query']) => q.collection === 'tape' && q.where?.ticker !== undefined,
+      orders: (q: Sub['query']) => q.collection === 'orders',
+      fills: (q: Sub['query']) => q.collection === 'fills',
+      portfolios: (q: Sub['query']) => q.collection === 'portfolios',
+    }
+    // Not vacuous: every group was subscribed (and so captured) before the window.
+    for (const [name, pick] of Object.entries(groups)) {
+      expect(subs.filter((x) => pick(x.sub.query)).length, `${name} subscribed before the window`).toBeGreaterThanOrEqual(1)
+    }
 
     const start = Date.now()
     const batchBefore = Number((await page.getByTestId('batch-id').textContent())?.replace('#', ''))
     await page.waitForTimeout(30_000)
     const batchAfter = Number((await page.getByTestId('batch-id').textContent())?.replace('#', ''))
-    // The window really covered live batches (each one mirrors new tape rows).
+    // The window really covered live batches, in one round, with tape changes arriving.
     expect(batchAfter - batchBefore).toBeGreaterThanOrEqual(20)
+    await expect(terminal).toHaveAttribute('data-round-id', roundId as string)
+    expect(tapeChanges.filter((t) => t >= start).length, 'tape record changes in the window').toBeGreaterThanOrEqual(1)
 
     const inWindow = subs.filter((s) => s.at >= start)
-    // Counted per query fingerprint, not per subscriptionId, so a re-subscribe
-    // under a fresh id still counts as a repeat of the same query.
-    const fingerprint = (q: Sub['query']) =>
-      JSON.stringify([q.collection, q.where ?? null, q.orderBy ?? null, q.orderDir ?? null, q.limit ?? null])
     const countBy = (pick: (q: Sub['query']) => boolean) => {
       const per = new Map<string, number>()
       for (const { sub } of inWindow) if (pick(sub.query)) per.set(fingerprint(sub.query), (per.get(fingerprint(sub.query)) ?? 0) + 1)
       return Math.max(0, ...per.values())
     }
-    // ui-trading's queries: the chart's tape (has a ticker), orders, fills, portfolios.
-    const mine = {
-      chartTape: countBy((q) => q.collection === 'tape' && q.where?.ticker !== undefined),
-      orders: countBy((q) => q.collection === 'orders'),
-      fills: countBy((q) => q.collection === 'fills'),
-      portfolios: countBy((q) => q.collection === 'portfolios'),
-    }
+    const mine = Object.fromEntries(Object.entries(groups).map(([name, pick]) => [name, countBy(pick)]))
     // ui-shell's Tape panel (no ticker in where); reported, not asserted.
     const feedTape = countBy((q) => q.collection === 'tape' && q.where?.ticker === undefined)
     testInfo.annotations.push({ type: 'core.subscribe in 30s', description: JSON.stringify({ ...mine, feedTape }) })
