@@ -33,7 +33,7 @@ import {
   resolveAuth,
 } from './src/server/http-routes.js'
 import { registerRealtimeRoutes } from './src/server/realtime-routes.js'
-import { ExchangeRoom } from './src/server/exchange-room.js'
+import { SpikeExchangeRoom as ExchangeRoom } from './src/server/exchange-spike.js' // SPIKE (temporary)
 
 // Dynamic deploy reads this manifest to create the app's DO bindings.
 export const __DO_MANIFEST__ = [
@@ -141,6 +141,13 @@ app.use('*', async (c, next) => {
 // follows its special cases, AI precedes platform proxies, and static is last.
 registerAuthAndIntegrationRoutes(app)
 registerRealtimeRoutes(app)
+// SPIKE (temporary): local-only control of the exchange spike harness.
+app.all('/api/spike/exchange/:op', async (c) => {
+  if (c.env.ALLOW_DEBUG_ROUTES !== 'true') return c.notFound()
+  const stub = c.env.EXCHANGE_ROOMS.get(c.env.EXCHANGE_ROOMS.idFromName(`exchange:${c.env.DEEPSPACE_APP_ID}`))
+  const body = c.req.method === 'POST' ? await c.req.text() : undefined
+  return stub.fetch(new Request(`https://exchange.internal/spike/${c.req.param('op')}`, { method: c.req.method, body }))
+})
 registerActionRoutes(app, resolveAuth)
 // Every scaffold exposes selected tools through HTTP, MCP and browser tools.
 // Only copilot owns the collections needed for the in-app chat UI.
