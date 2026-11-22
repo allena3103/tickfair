@@ -1,4 +1,28 @@
-# Report: ui-trading (wave 2), reviewer fixes on evaluator run 3
+# Report: ui-trading (wave 2), fresh-review fixes
+
+**Fresh reviewer FAIL fixed, on code commit `07f8313`.** Every check was rerun by me on that commit.
+
+| Item | Fix | Proof |
+|------|-----|-------|
+| **F1** The PERF test could pass vacuously. | `tests/smoke.spec.ts`: before the window opens, the test asserts that each fingerprint group (chart tape, orders, fills, portfolios) was subscribed at least once. During the window it records received `core.record_change` frames for `tape`, and asserts at least one arrived. It still asserts at least 20 batches ran. | e2e passes with chart tape 0, orders 0, fills 0, portfolios 0 (`feedTape` 24). The earlier negative check (old chart query → 25 repeats, test failed) still applies. The counting is unchanged; only guards were added. |
+| **F4** The window could straddle a round end. | It now waits (up to 240 s) for a live phase with more than 50 s left, which covers the 3 s settle plus the 30 s window. It then records the round id and asserts the same round id after the window. | Same e2e run. |
+| **F2** (resolved by the reviewer) | Added the requested unit test: `chartPoints` gets 350 batches in scrambled order, split across tape and prints, and returns exactly the newest 300 in strictly ascending batch (time) order: first batch 51, last batch 350. | Unit pass. |
+| **F3** Response-time balance capture | **Known untested path.** The ref that `OrderTicket` reads when a reject arrives has no component test. A cheap test isn't practical: the unit setup renders to static markup with no DOM or events, and the e2e setup can't reliably land a fill between send and response. The rule it feeds (`rejectIsStale`) is fully unit-tested. | — |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 276 passed (276)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.5 min. PERF logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":24}` |
+
+The ui-shell `Tape` request (re-subscribes about once per batch) still stands.
+
+Files changed: `tests/smoke.spec.ts`, `src/components/trading/logic.test.ts`. Both are in my ownership list.
+
+---
+
+## Reviewer fixes on evaluator run 3
 
 **Reviewer FAIL fixed, on code commit `e5938cc`.** Every check was rerun by me on that commit.
 
@@ -231,7 +255,8 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Reviewer-fix code commit: `e5938cc`. This report is committed on top of it.
+- Fresh-review fix code commit: `07f8313`. This report is committed on top of it.
+- Reviewer-fix code commit: `e5938cc`.
 - Evaluator run 3 code commit: `3ba2718`, on `agent/exchange` at `e6cc3e4`.
 - E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`.
 - Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`.
