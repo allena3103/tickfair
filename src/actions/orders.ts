@@ -48,8 +48,8 @@ const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Numb
 export function parsePlaceOrder(raw: Record<string, unknown>): PlaceOrderParams | RejectCode {
   const { ticker, side, type, qty, limitCents } = raw
   if (typeof ticker !== 'string' || !(TICKERS as readonly string[]).includes(ticker)) return 'invalid_ticker'
-  if (side !== 'buy' && side !== 'sell') return 'invalid_qty'
-  if (type !== 'limit' && type !== 'market') return 'invalid_price'
+  if (side !== 'buy' && side !== 'sell') return 'invalid_side'
+  if (type !== 'limit' && type !== 'market') return 'invalid_type'
   if (!isPositiveInt(qty)) return 'invalid_qty'
   if (type === 'limit') {
     if (!isPositiveInt(limitCents)) return 'invalid_price'

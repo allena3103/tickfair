@@ -57,6 +57,8 @@ export interface BreakingNewsParams {
 export type RejectCode =
   | 'round_closed'
   | 'invalid_ticker'
+  | 'invalid_side'
+  | 'invalid_type'
   | 'invalid_qty'
   | 'invalid_price'
   | 'outside_band'
