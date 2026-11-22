@@ -9,6 +9,7 @@ import {
   formatSignedCents,
   formatSignedPercent,
   formatSignedPrice,
+  displayDelta,
 } from './format'
 
 const MINUS = '−'
@@ -40,6 +41,27 @@ describe('format', () => {
     expect(directionOf(3)).toBe('up')
     expect(directionOf(-3)).toBe('down')
     expect(directionOf(0)).toBe('flat')
+  })
+
+  it('derives the arrow from the displayed value, so tiny moves read as flat', () => {
+    // percent: 0.004% displays as 0.00%
+    expect(displayDelta(0.00004, 'percent')).toEqual({ direction: 'flat', label: '0.00%' })
+    expect(displayDelta(-0.00004, 'percent')).toEqual({ direction: 'flat', label: '0.00%' })
+    expect(displayDelta(0.00005, 'percent')).toEqual({ direction: 'up', label: '+0.01%' })
+    expect(displayDelta(-0.00005, 'percent')).toEqual({ direction: 'down', label: `${MINUS}0.01%` })
+    expect(displayDelta(0.0125, 'percent')).toEqual({ direction: 'up', label: '+1.25%' })
+    // whole-dollar money: +/-49 cents displays as $0
+    expect(displayDelta(49, 'money', { whole: true })).toEqual({ direction: 'flat', label: '$0' })
+    expect(displayDelta(-49, 'money', { whole: true })).toEqual({ direction: 'flat', label: '$0' })
+    expect(displayDelta(50, 'money', { whole: true })).toEqual({ direction: 'up', label: '+$1' })
+    expect(displayDelta(-50, 'money', { whole: true })).toEqual({ direction: 'down', label: `${MINUS}$1` })
+    expect(displayDelta(-125_000, 'money')).toEqual({ direction: 'down', label: `${MINUS}$1,250.00` })
+    // price: sub-cent values round to whole cents
+    expect(displayDelta(0.4, 'price')).toEqual({ direction: 'flat', label: '0.00' })
+    expect(displayDelta(-0.4, 'price')).toEqual({ direction: 'flat', label: '0.00' })
+    expect(displayDelta(125, 'price')).toEqual({ direction: 'up', label: '+1.25' })
+    expect(displayDelta(-40)).toEqual({ direction: 'down', label: `${MINUS}0.40` })
+    expect(displayDelta(Number.NaN, 'percent')).toEqual({ direction: 'flat', label: '—' })
   })
 
   it('formats relative time', () => {

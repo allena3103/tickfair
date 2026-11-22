@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { START_CASH_CENTS, type RoundRecord, type Standing } from '@/shared/contracts'
 import { isBotId } from '@/components/shell/tickers'
 import { Delta } from '@/theme/Delta'
-import { formatCents, formatClock, formatSignedCents } from '@/theme/format'
+import { formatCents, formatClock } from '@/theme/format'
 import { FeedEmpty, FeedError, FeedSkeleton } from './FeedPanel'
 
 export interface RoundItem extends RoundRecord {
@@ -77,7 +77,9 @@ export function RoundsView({
 function RoundRow({ round, currentUserId }: { round: RoundItem; currentUserId?: string | null }) {
   const [open, setOpen] = useState(false)
   const standings = humanStandings(round.standings)
-  const winner = standings.find((s) => s.userId === round.winnerId) ?? null
+  // standings are best-first, so if winnerId is missing, stale, or a bot,
+  // the top human standing is the winner shown.
+  const winner = standings.find((s) => s.userId === round.winnerId) ?? standings[0] ?? null
   const ended = new Date(round.endsAt)
   const panelId = `round-${round.id}`
   return (
@@ -151,7 +153,7 @@ function RoundRow({ round, currentUserId }: { round: RoundItem; currentUserId?: 
                         {formatCents(s.equityCents, { whole: true })}
                       </td>
                       <td className="py-1.5 text-right">
-                        <Delta value={pnl}>{formatSignedCents(pnl, { whole: true })}</Delta>
+                        <Delta value={pnl} kind="money" whole />
                       </td>
                     </tr>
                   )

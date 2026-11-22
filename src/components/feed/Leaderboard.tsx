@@ -9,7 +9,7 @@ import { Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PortfolioRecord, Ticker } from '@/shared/contracts'
 import { Delta } from '@/theme/Delta'
-import { formatCents, formatSignedCents } from '@/theme/format'
+import { formatCents } from '@/theme/format'
 import { rankPortfolios, type LeaderRow } from './rank'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
@@ -114,7 +114,7 @@ function Row({ row, isSelf }: { row: LeaderRow; isSelf: boolean }) {
       </td>
       <td className="py-1.5 text-right font-mono tabular-nums">{formatCents(row.equityCents, { whole: true })}</td>
       <td className="px-3 py-1.5 text-right">
-        <Delta value={row.pnlCents}>{formatSignedCents(row.pnlCents, { whole: true })}</Delta>
+        <Delta value={row.pnlCents} kind="money" whole />
       </td>
     </tr>
   )

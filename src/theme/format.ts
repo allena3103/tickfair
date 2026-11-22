@@ -88,3 +88,40 @@ export function formatSignedCents(cents: number, opts: { whole?: boolean } = {})
   if (body === '$0' || body === '$0.00') return body
   return `${cents > 0 ? '+' : MINUS}${body}`
 }
+
+export type DeltaKind = 'price' | 'percent' | 'money'
+
+/** Round half away from zero, so +x and −x always round to the same size. */
+function roundAway(v: number): number {
+  return Math.sign(v) * Math.round(Math.abs(v))
+}
+
+/**
+ * The label for a change plus the direction of what the label shows. The
+ * direction comes from the rounded value, so a tiny move that displays as
+ * zero is "flat" (· 0.00%) rather than "▲ 0.00%": arrow, sign, and number
+ * always agree.
+ *   price:   value in cents → "+1.25"
+ *   percent: value as a ratio → "+1.25%"
+ *   money:   value in cents → "+$1,250.00" (or "+$1,250" with `whole`)
+ */
+export function displayDelta(
+  value: number,
+  kind: DeltaKind = 'price',
+  opts: { whole?: boolean } = {},
+): { direction: Direction; label: string } {
+  if (!Number.isFinite(value)) return { direction: 'flat', label: '—' }
+  let shown: number
+  let label: string
+  if (kind === 'percent') {
+    shown = roundAway(value * 10_000) / 10_000 // 2 decimals of a percent
+    label = formatSignedPercent(shown)
+  } else if (kind === 'money' && opts.whole) {
+    shown = roundAway(value / 100) * 100
+    label = formatSignedCents(shown, { whole: true })
+  } else {
+    shown = roundAway(value) // whole cents
+    label = kind === 'money' ? formatSignedCents(shown) : formatSignedPrice(shown)
+  }
+  return { direction: directionOf(shown), label }
+}

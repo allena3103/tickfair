@@ -1,12 +1,12 @@
 /**
- * A signed price change that stays readable without color: every value
- * carries an arrow and a sign (▲ +1.25 / ▼ −0.40 / · 0.00). Color only
- * reinforces the direction.
+ * A signed change that stays readable without color: every value carries an
+ * arrow and a sign (▲ +1.25 / ▼ −0.40 / · 0.00). Color only reinforces the
+ * direction. Arrow, sign, and color all follow the *displayed* (rounded)
+ * value, so they never disagree with the number (see displayDelta).
  */
 
-import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { directionOf, formatSignedPercent, formatSignedPrice, type Direction } from './format'
+import { displayDelta, type DeltaKind, type Direction } from './format'
 
 const ARROW: Record<Direction, string> = { up: '▲', down: '▼', flat: '·' }
 
@@ -17,27 +17,26 @@ export const DIRECTION_TEXT: Record<Direction, string> = {
 }
 
 interface DeltaProps {
-  /** Change in cents, or a ratio when `percent` is set. */
+  /** Cents for `price` and `money`; a ratio for `percent`. */
   value: number
-  percent?: boolean
-  /** Custom text for the number (the arrow and color still follow `value`). */
-  children?: ReactNode
+  kind?: DeltaKind
+  /** `money` only: round to whole dollars. */
+  whole?: boolean
   className?: string
 }
 
-export function Delta({ value, percent, children, className }: DeltaProps) {
-  const dir = directionOf(value)
-  const label = percent ? formatSignedPercent(value) : formatSignedPrice(value)
+export function Delta({ value, kind = 'price', whole, className }: DeltaProps) {
+  const { direction, label } = displayDelta(value, kind, { whole })
   return (
     <span
-      data-direction={dir}
-      className={cn('inline-flex items-baseline gap-1 font-mono tabular-nums', DIRECTION_TEXT[dir], className)}
+      data-direction={direction}
+      className={cn('inline-flex items-baseline gap-1 font-mono tabular-nums', DIRECTION_TEXT[direction], className)}
     >
       <span aria-hidden className="text-[0.7em]">
-        {ARROW[dir]}
+        {ARROW[direction]}
       </span>
-      <span>{children ?? label}</span>
-      <span className="sr-only">{dir === 'up' ? 'up' : dir === 'down' ? 'down' : 'unchanged'}</span>
+      <span>{label}</span>
+      <span className="sr-only">{direction === 'up' ? 'up' : direction === 'down' ? 'down' : 'unchanged'}</span>
     </span>
   )
 }

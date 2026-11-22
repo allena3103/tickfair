@@ -115,16 +115,15 @@ test.describe('app shell (signed out)', () => {
   test('/trade is gated when signed out', async ({ page }) => {
     await page.goto('/trade')
     await waitForApp(page)
-    // ui-trading creates /trade in wave 2. Until it exists the route 404s.
-    const missing = await page
-      .locator('text=404')
-      .first()
-      .isVisible({ timeout: 5_000 })
-      .catch(() => false)
+    // ui-trading creates /trade in wave 2; until then the route 404s. Both
+    // the 404 page and the gate load lazily, so wait for one of them to
+    // actually render before deciding (isVisible() would not wait).
+    const notFound = page.locator('text=404')
+    const gate = page.getByText('Sign in to continue').or(page.getByTestId('auth-overlay'))
+    await expect(notFound.or(gate).first()).toBeVisible({ timeout: 15_000 })
+    const missing = await notFound.first().isVisible()
     test.skip(missing, '/trade not built yet (owned by ui-trading); re-enable check after wave 2 merge')
-    await expect(page.getByText('Sign in to continue').or(page.getByTestId('auth-overlay'))).toBeVisible({
-      timeout: 15_000,
-    })
+    await expect(gate.first()).toBeVisible()
   })
 
   test('unknown route shows 404', async ({ page }) => {

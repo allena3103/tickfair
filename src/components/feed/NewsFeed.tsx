@@ -9,7 +9,7 @@ import { Newspaper } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NewsRecord } from '@/shared/contracts'
 import { formatRelativeTime } from '@/theme/format'
-import { useCurrentRound } from '../shell/useCurrentRound'
+import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurrentRound'
 import { useNow } from '../shell/useNow'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
@@ -21,33 +21,24 @@ export interface NewsItem extends NewsRecord {
 }
 
 export function NewsFeed({ roundId, limit = 30, className }: { roundId?: string; limit?: number; className?: string }) {
-  const current = useCurrentRound()
-  const round = roundId ?? current.round?.recordId
-  const { records, status, error } = useQuery<NewsRecord>('news', {
-    where: round ? { roundId: round } : {},
+  const feed = resolveFeedRound(roundId, useCurrentRound())
+  const query = useQuery<NewsRecord>('news', {
+    where: { roundId: feed.roundId },
     orderBy: 'publishedAt',
     orderDir: 'desc',
     limit,
   })
   const items = useMemo(
     () =>
-      records
+      query.records
         .map((r) => ({ ...r.data, id: r.recordId }))
         .sort((a, b) => b.publishedAt - a.publishedAt || b.id.localeCompare(a.id))
         .slice(0, limit),
-    [records, limit],
+    [query.records, limit],
   )
   const now = useNow(15_000)
-  const waiting = !roundId && current.status === 'loading'
-  return (
-    <NewsFeedView
-      items={items}
-      now={now}
-      status={waiting ? 'loading' : status}
-      error={error ?? current.error}
-      className={className}
-    />
-  )
+  const { status, error } = feedStatus(feed, query)
+  return <NewsFeedView items={items} now={now} status={status} error={error} className={className} />
 }
 
 export function NewsFeedView({

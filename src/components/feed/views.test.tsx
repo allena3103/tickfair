@@ -144,4 +144,50 @@ describe('RoundsView', () => {
     expect(out).toContain('2 traders')
     expect(out).not.toContain('MM')
   })
+
+  it('falls back to the top human when winnerId is missing, stale, or a bot', () => {
+    for (const winnerId of ['', 'gone', 'bot:mm']) {
+      const out = html(
+        <RoundsView
+          status="ready"
+          rounds={[
+            {
+              id: 'r1',
+              startsAt: 0,
+              endsAt: 15 * 60_000,
+              status: 'done',
+              winnerId,
+              standings: [
+                { userId: 'bot:mm', displayName: 'MM', equityCents: 99_000_000 },
+                { userId: 'u2', displayName: 'Bo', equityCents: 9_900_000 },
+                { userId: 'u1', displayName: 'Ana', equityCents: 10_250_000 },
+              ],
+            },
+          ]}
+        />,
+      )
+      expect(out).toMatch(/font-medium">Ana</)
+      expect(out).not.toContain('No human traders')
+    }
+  })
+
+  it('says no human traders only when there are none', () => {
+    const out = html(
+      <RoundsView
+        status="ready"
+        rounds={[
+          {
+            id: 'r',
+            startsAt: 0,
+            endsAt: 1,
+            status: 'done',
+            winnerId: 'bot:mm',
+            standings: [{ userId: 'bot:mm', displayName: 'MM', equityCents: 1 }],
+          },
+        ]}
+      />,
+    )
+    expect(out).toContain('No human traders')
+    expect(out).toContain('0 traders')
+  })
 })

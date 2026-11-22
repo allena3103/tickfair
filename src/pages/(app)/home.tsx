@@ -16,14 +16,13 @@ import { NewsFeed } from '@/components/feed/NewsFeed'
 import { OnlineTraders } from '@/components/feed/OnlineTraders'
 import { Tape } from '@/components/feed/Tape'
 import { TICKER_INFO } from '@/components/shell/tickers'
-import { useCurrentRound } from '@/components/shell/useCurrentRound'
+import { feedStatus, resolveFeedRound, useCurrentRound } from '@/components/shell/useCurrentRound'
 import { Delta } from '@/theme/Delta'
 import { formatPrice } from '@/theme/format'
 
 export default function HomePage() {
   const { isSignedIn, userId } = useAuthStatus()
-  const current = useCurrentRound()
-  const roundId = current.round?.recordId
+  const round = resolveFeedRound(undefined, useCurrentRound())
 
   const tickers = useQuery<TickerRecord>('tickers')
   const bySymbol = useMemo(() => {
@@ -40,13 +39,13 @@ export default function HomePage() {
     return out
   }, [bySymbol])
 
-  // No round yet → match nothing rather than every round's portfolios.
+  // No round yet → NO_ROUND matches nothing, not every round's portfolios.
   const portfolios = useQuery<PortfolioRecord>('portfolios', {
-    where: { roundId: roundId ?? '__no_round__' },
+    where: { roundId: round.roundId },
     limit: 500,
   })
   const portfolioData = useMemo(() => portfolios.records.map((r) => r.data), [portfolios.records])
-  const boardStatus = current.status === 'loading' ? 'loading' : current.status === 'error' ? 'error' : portfolios.status
+  const board = feedStatus(round, portfolios)
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 p-4">
@@ -84,7 +83,7 @@ export default function HomePage() {
                 <div className="text-right">
                   <p className="font-mono text-lg tabular-nums">{rec ? formatPrice(rec.lastCents) : '—'}</p>
                   {change !== null && rec ? (
-                    <Delta value={change / rec.openCents} percent className="text-xs" />
+                    <Delta value={change / rec.openCents} kind="percent" className="text-xs" />
                   ) : (
                     <p className="font-mono text-xs text-muted-foreground">{rec ? '' : 'no trades yet'}</p>
                   )}
@@ -100,8 +99,8 @@ export default function HomePage() {
           portfolios={portfolioData}
           last={last}
           currentUserId={userId}
-          status={boardStatus}
-          error={portfolios.error ?? current.error}
+          status={board.status}
+          error={board.error}
           className="max-h-[420px]"
         />
         <NewsFeed className="max-h-[420px]" />

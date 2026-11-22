@@ -9,7 +9,7 @@ import { Activity } from 'lucide-react'
 import type { TapeRecord, Ticker } from '@/shared/contracts'
 import { Delta } from '@/theme/Delta'
 import { formatPrice, formatQty, formatTimeOfDay } from '@/theme/format'
-import { useCurrentRound } from '../shell/useCurrentRound'
+import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurrentRound'
 import { buildTape, type TapeRow } from './tapeRows'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
@@ -22,26 +22,16 @@ interface TapeProps {
 }
 
 export function Tape({ ticker, roundId, limit = 60, className }: TapeProps) {
-  const current = useCurrentRound()
-  const round = roundId ?? current.round?.recordId
-  const where: Record<string, unknown> = {}
-  if (round) where.roundId = round
+  const feed = resolveFeedRound(roundId, useCurrentRound())
+  const where: Record<string, unknown> = { roundId: feed.roundId }
   if (ticker) where.ticker = ticker
-  const { records, status, error } = useQuery<TapeRecord>('tape', { where, orderBy: 'at', orderDir: 'desc', limit })
+  const query = useQuery<TapeRecord>('tape', { where, orderBy: 'at', orderDir: 'desc', limit })
   const rows = useMemo(
-    () => buildTape(records.map((r) => ({ id: r.recordId, data: r.data })), ticker).slice(0, limit),
-    [records, ticker, limit],
+    () => buildTape(query.records.map((r) => ({ id: r.recordId, data: r.data })), ticker).slice(0, limit),
+    [query.records, ticker, limit],
   )
-  const waiting = !roundId && current.status === 'loading'
-  return (
-    <TapeView
-      rows={rows}
-      ticker={ticker}
-      status={waiting ? 'loading' : status}
-      error={error ?? current.error}
-      className={className}
-    />
-  )
+  const { status, error } = feedStatus(feed, query)
+  return <TapeView rows={rows} ticker={ticker} status={status} error={error} className={className} />
 }
 
 export function TapeView({

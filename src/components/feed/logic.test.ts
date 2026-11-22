@@ -4,6 +4,7 @@ import { equityOf, rankPortfolios } from './rank'
 import { buildTape } from './tapeRows'
 import { mergeOnline } from './onlineList'
 import { roundPhase } from '../shell/RoundStatus'
+import { NO_ROUND, feedStatus, resolveFeedRound, type CurrentRound } from '../shell/useCurrentRound'
 
 const last = { ORBT: 4_000, CURA: 2_000, VOLT: 1_000 }
 
@@ -113,5 +114,31 @@ describe('round phase', () => {
   it('handles loading and no round', () => {
     expect(roundPhase(null, now, true)).toEqual({ kind: 'loading' })
     expect(roundPhase(null, now, false)).toEqual({ kind: 'none' })
+  })
+})
+
+describe('round-scoped feeds', () => {
+  const round = (id: string) =>
+    ({ recordId: id, data: { startsAt: 0, endsAt: 1, status: 'live', standings: [], winnerId: '' } }) as unknown as CurrentRound['round']
+  const ready = { status: 'ready' as const }
+
+  it('queries the current round, or an explicit one', () => {
+    expect(resolveFeedRound(undefined, { round: round('r9'), status: 'ready' })).toEqual({ roundId: 'r9', pending: false })
+    expect(resolveFeedRound('r1', { round: null, status: 'error', error: 'x' })).toEqual({ roundId: 'r1', pending: false })
+  })
+
+  it('queries no round (not every round) when none resolves', () => {
+    expect(resolveFeedRound(undefined, { round: null, status: 'ready' }).roundId).toBe(NO_ROUND)
+    expect(resolveFeedRound(undefined, { round: null, status: 'loading' }).roundId).toBe(NO_ROUND)
+    expect(resolveFeedRound(undefined, { round: null, status: 'error' }).roundId).toBe(NO_ROUND)
+  })
+
+  it('shows the round query error and loading state over the feed status', () => {
+    const errored = resolveFeedRound(undefined, { round: null, status: 'error', error: 'rounds down' })
+    expect(feedStatus(errored, ready)).toEqual({ status: 'error', error: 'rounds down' })
+    expect(feedStatus(resolveFeedRound(undefined, { round: null, status: 'error' }), ready).status).toBe('error')
+    expect(feedStatus(resolveFeedRound(undefined, { round: null, status: 'loading' }), ready)).toEqual({ status: 'loading' })
+    expect(feedStatus(resolveFeedRound(undefined, { round: null, status: 'ready' }), ready)).toEqual({ status: 'ready', error: undefined })
+    expect(feedStatus({ pending: false }, { status: 'error', error: 'news down' })).toEqual({ status: 'error', error: 'news down' })
   })
 })
