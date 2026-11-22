@@ -312,6 +312,10 @@ test.describe('feed subscriptions', () => {
       // Not vacuous: the shell tape subscription was seen, with its expected shape.
       const before = frames.counts(false, isShellTape)
       expect(total(before), `shell tape subscribe seen before reset: ${JSON.stringify(before)}`).toBeGreaterThanOrEqual(1)
+      expect(total(frames.counts(false, (q) => q.collection === 'news')), 'news subscribe seen before reset').toBeGreaterThanOrEqual(1)
+      if (path === '/home') {
+        expect(total(frames.counts(false, (q) => q.collection === 'portfolios')), 'portfolios subscribe seen before reset').toBeGreaterThanOrEqual(1)
+      }
 
       frames.reset()
       await a.page.waitForTimeout(30_000)
