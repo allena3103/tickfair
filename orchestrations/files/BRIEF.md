@@ -88,7 +88,7 @@ export interface CancelOrderParams { orderId: string }
 // POST /api/actions/breakingNews   (owner only)
 export interface BreakingNewsParams { ticker?: Ticker }
 export type RejectCode =
-  | 'round_closed' | 'invalid_ticker' | 'invalid_qty' | 'invalid_price' | 'outside_band'
+  | 'round_closed' | 'invalid_ticker' | 'invalid_side' | 'invalid_type' | 'invalid_qty' | 'invalid_price' | 'outside_band'
   | 'insufficient_cash' | 'insufficient_shares' | 'self_cross' | 'rate_limited'
   | 'too_many_open' | 'not_found' | 'not_owner' | 'already_final' | 'forbidden'
 // Actions return ActionResult: { success: false, error: RejectCode } on rejection.
