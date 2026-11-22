@@ -66,6 +66,8 @@ function totals(accounts: Map<string, Account>): Totals {
 }
 
 function checkConserved(v: Violations, now: Totals, before: Totals, where: string) {
+  // JSON.stringify turns NaN into null, so non-finite totals are rejected explicitly first.
+  for (const [k, n] of Object.entries(now)) if (!Number.isFinite(n)) v.fail(`${where}: total ${k} is ${n}`)
   if (!same(now, before)) v.fail(`${where}: totals ${JSON.stringify(now)} != ${JSON.stringify(before)}`)
 }
 
@@ -83,13 +85,13 @@ function checkAccounts(v: Violations, accounts: Map<string, Account>, book: Book
   }
   for (const [id, a] of accounts) {
     const h = held.get(id)!
-    if (a.cashCents < 0) v.fail(`${where}: ${id} cash ${a.cashCents} < 0`)
-    if (a.reservedCents < 0) v.fail(`${where}: ${id} reserved ${a.reservedCents} < 0`)
+    if (!(a.cashCents >= 0)) v.fail(`${where}: ${id} cash ${a.cashCents} not >= 0`)
+    if (!(a.reservedCents >= 0)) v.fail(`${where}: ${id} reserved ${a.reservedCents} not >= 0`)
     if (a.reservedCents !== h.cents) v.fail(`${where}: ${id} reserved ${a.reservedCents} != book ${h.cents}`)
     for (const t of TICKERS) {
       const { qty, reservedQty } = a.holdings[t]
-      if (reservedQty < 0) v.fail(`${where}: ${id} ${t} reservedQty ${reservedQty} < 0`)
-      if (qty < reservedQty) v.fail(`${where}: ${id} ${t} qty ${qty} < reservedQty ${reservedQty}`)
+      if (!(reservedQty >= 0)) v.fail(`${where}: ${id} ${t} reservedQty ${reservedQty} not >= 0`)
+      if (!(qty >= reservedQty)) v.fail(`${where}: ${id} ${t} qty ${qty} not >= reservedQty ${reservedQty}`)
       if (reservedQty !== h[t]) v.fail(`${where}: ${id} ${t} reservedQty ${reservedQty} != book ${h[t]}`)
     }
   }
@@ -275,8 +277,27 @@ describe('property: seeded random order stream', () => {
   }, 60_000)
 
   it('the whole stream is reproducible', () => {
-    expect(runStream(7, 150)).toEqual(runStream(7, 150))
+    const a = runStream(7, 150)
+    const b = runStream(7, 150)
+    expect(a.violations).toEqual([])
+    expect(b).toEqual(a)
   }, 60_000)
+
+  it('the account and conservation checks report NaN (comparisons with NaN are always false)', () => {
+    const v = new Violations()
+    const acct = emptyAccount(1_000)
+    const nanCash = { ...acct, cashCents: Number.NaN }
+    const nanQty = { ...acct, holdings: { ...acct.holdings, VOLT: { qty: Number.NaN, reservedQty: 0 } } }
+    const nanReserved = { ...acct, holdings: { ...acct.holdings, CURA: { qty: 5, reservedQty: Number.NaN } } }
+    checkAccounts(v, new Map([['A', nanCash], ['B', nanQty], ['C', nanReserved]]), [], 'nan')
+    expect(v.list).toContain('nan: A cash NaN not >= 0')
+    expect(v.list).toContain('nan: B VOLT qty NaN not >= reservedQty 0')
+    expect(v.list).toContain('nan: C CURA reservedQty NaN not >= 0')
+    const w = new Violations()
+    const t = totals(new Map([['A', nanCash]]))
+    checkConserved(w, t, t, 'nan')
+    expect(w.list).toContain('nan: total cash is NaN')
+  })
 
   it('the checker itself catches broken output (guards against a silently passing harness)', () => {
     const v = new Violations()
