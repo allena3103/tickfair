@@ -69,11 +69,11 @@ Temporary local edits to `src/actions/index.ts` (registration), `src/server/http
    ```
    Without it, `tests/api.spec.ts › breakingNews as a non-owner is forbidden` fails (404 `Action not found`). Checked: `11 passed, 1 failed` on the committed tree, and `12 passed` with the registration.
 2. **The real call**, once rounds go live: owner-trigger `news` (or call `breakingNews` as the owner), then check the `[news] published <id> <ticker>: <headline>` log line and the `news` record.
-4. **A flaky market-sim test (not mine; I didn't touch it):** the `drawNewsEvent` 10,000-draw test in `src/engine/market/market.test.ts` timed out at 5000 ms in 1 of 4 unit runs while other workers were loading the machine. It needs a larger per-test timeout or fewer draws. Please route it to market-sim or fix it at merge.
 3. **The `breakingNews` result shape**, for ui-shell or anyone who calls it:
    - published: `{success:true, data:{published:true, newsId, headline, shocked}}`;
    - validation skip: `{success:true, data:{published:false, reason}}`;
    - rejections: `forbidden`, `invalid_ticker`, `rate_limited`, `round_closed`.
+4. **A flaky market-sim test (not mine; I didn't touch it):** the `drawNewsEvent` 10,000-draw test in `src/engine/market/market.test.ts` timed out at 5000 ms in 1 of 4 unit runs while other workers were loading the machine. It needs a larger per-test timeout or fewer draws. Please route it to market-sim or fix it at merge.
 
 ## 6. Lessons
 
