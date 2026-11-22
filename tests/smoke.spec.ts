@@ -7,7 +7,7 @@ import { captureConsoleErrors } from './helpers/errors'
  *   - '/'        static landing: no providers, no auth fetch, no records socket.
  *   - '/home'    the floor overview inside the (app) providers.
  *   - '/rounds'  past rounds (empty until the exchange runtime writes some).
- *   - '/trade'   ui-trading's terminal; here we only check the signed-out gate.
+ *   - '/trade'   the terminal: gated signed out; signed in it renders real engine data.
  *   - presence   two signed-in users see each other in OnlineTraders.
  *
  * The "static contract" test guards the per-page opt-out: if someone moves
@@ -115,15 +115,13 @@ test.describe('app shell (signed out)', () => {
   test('/trade is gated when signed out', async ({ page }) => {
     await page.goto('/trade')
     await waitForApp(page)
-    // ui-trading creates /trade in wave 2; until then the route 404s. Both
-    // the 404 page and the gate load lazily, so wait for one of them to
-    // actually render before deciding (isVisible() would not wait).
-    const notFound = page.locator('text=404')
-    const gate = page.getByText('Sign in to continue').or(page.getByTestId('auth-overlay'))
-    await expect(notFound.or(gate).first()).toBeVisible({ timeout: 15_000 })
-    const missing = await notFound.first().isVisible()
-    test.skip(missing, '/trade not built yet (owned by ui-trading); re-enable check after wave 2 merge')
-    await expect(gate.first()).toBeVisible()
+    await expect(page.getByText('Sign in to continue').or(page.getByTestId('auth-overlay')).first()).toBeVisible({
+      timeout: 15_000,
+    })
+    // No terminal content, and no exchange socket, behind the gate.
+    await expect(page.getByTestId('trade-terminal')).toHaveCount(0)
+    await expect(page.getByTestId('order-ticket')).toHaveCount(0)
+    await expect(page.getByTestId('depth-ladder')).toHaveCount(0)
   })
 
   test('unknown route shows 404', async ({ page }) => {
@@ -165,5 +163,66 @@ test.describe('presence', () => {
     await expect(
       a.page.locator(`[data-testid="online-trader"][data-user-id="${idB}"][data-on-floor="true"]`),
     ).toHaveCount(0, { timeout: 20_000 })
+  })
+})
+
+test.describe('trade terminal (signed in)', () => {
+  const usable = loadAllTestAccounts().length
+  test.skip(usable < 1, `Needs 1 usable test account, found ${usable}.`)
+
+  test('ticket, ladder, chart, and leaderboard render with real engine data', async ({ users }) => {
+    const [a] = await users(1)
+    const page = a.page
+    const errors = captureConsoleErrors(page)
+    await page.goto('/trade')
+    const terminal = page.getByTestId('trade-terminal')
+    await expect(terminal).toBeVisible({ timeout: 20_000 })
+    // The engine's snapshot arrived over the socket (either phase is fine).
+    await expect(terminal).toHaveAttribute('data-connected', 'true', { timeout: 20_000 })
+    await expect(terminal).toHaveAttribute('data-round-id', /^r-/)
+    await expect(terminal).toHaveAttribute('data-phase', /^(live|break)$/)
+
+    // Live prices from the engine in the tabs and the chart header.
+    for (const t of ['ORBT', 'CURA', 'VOLT']) {
+      await expect(page.getByTestId(`ticker-tab-${t}`)).toContainText(/\d+\.\d{2}/)
+    }
+    await expect(page.getByTestId('chart-last')).toHaveText(/^\d[\d,]*\.\d{2}$/)
+
+    await expect(page.getByTestId('order-ticket')).toBeVisible()
+    await expect(page.getByTestId('fairness-hint')).toContainText('same 1-second batch')
+    const ladder = page.getByTestId('depth-ladder')
+    await expect(ladder).toBeVisible()
+    await expect(ladder.locator('[data-state="loading"]')).toHaveCount(0, { timeout: 15_000 })
+    if ((await terminal.getAttribute('data-phase')) === 'live') {
+      // Bots quote every batch, so a live book has levels.
+      await expect(ladder.locator('[data-testid="ladder-bid"], [data-testid="ladder-ask"]').first()).toBeVisible({
+        timeout: 15_000,
+      })
+      await expect(page.getByTestId('ticket-submit')).toBeEnabled({ timeout: 15_000 })
+    } else {
+      await expect(page.getByTestId('ticket-submit')).toBeDisabled()
+    }
+
+    const board = page.getByTestId('leaderboard')
+    await expect(board).toBeVisible()
+    await expect(board.locator('[data-state="loading"]')).toHaveCount(0, { timeout: 15_000 })
+    await expect(board.locator('[data-state="error"]')).toHaveCount(0)
+    for (const id of ['positions', 'open-orders', 'my-fills', 'tape', 'news-feed', 'online-traders']) {
+      await expect(page.getByTestId(id)).toBeVisible()
+    }
+    expect(errors).toEqual([])
+  })
+
+  test('the fairness note links to the batch auction explanation', async ({ users }) => {
+    const [a] = await users(1)
+    const page = a.page
+    await page.goto('/trade')
+    const link = page.getByTestId('fairness-hint').getByRole('link', { name: 'How it works' })
+    await expect(link).toBeVisible({ timeout: 20_000 })
+    await link.click()
+    await expect(page).toHaveURL(/\/#how-it-works$/)
+    const section = page.locator('#how-it-works')
+    await expect(section.getByRole('heading', { name: 'How a batch auction works' })).toBeVisible({ timeout: 15_000 })
+    await expect(section).toBeInViewport()
   })
 })
