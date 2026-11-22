@@ -20,10 +20,11 @@ export function useOnlineTraders(): { traders: OnlineTrader[]; status: FloorStat
     () =>
       mergeOnline({
         self: isSignedIn && user ? { userId: user.id, name: user.name || user.email || 'You' } : null,
+        selfOnFloor: status === 'connected',
         peers,
         heartbeat: users.filter((u) => isOnline(u.id)),
       }),
-    [isSignedIn, user, peers, users, isOnline],
+    [isSignedIn, user, status, peers, users, isOnline],
   )
   return { traders, status }
 }

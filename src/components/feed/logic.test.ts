@@ -78,6 +78,7 @@ describe('online list', () => {
   it('puts self first, then floor peers, then heartbeat-only users', () => {
     const list = mergeOnline({
       self: { userId: 'me', name: 'Me' },
+      selfOnFloor: true,
       peers: [
         { userId: 'zed', userName: 'Zed', state: { ticker: 'VOLT' } },
         { userId: 'me', userName: 'Me', state: { ticker: 'ORBT' } },
@@ -98,7 +99,17 @@ describe('online list', () => {
   })
 
   it('works signed out', () => {
-    expect(mergeOnline({ self: null, peers: [], heartbeat: [{ id: 'a', name: 'A' }] })).toHaveLength(1)
+    expect(mergeOnline({ self: null, selfOnFloor: false, peers: [], heartbeat: [{ id: 'a', name: 'A' }] })).toHaveLength(1)
+  })
+
+  it('does not mark yourself on the floor while your socket is down', () => {
+    const [me] = mergeOnline({
+      self: { userId: 'me', name: 'Me' },
+      selfOnFloor: false,
+      peers: [{ userId: 'me', userName: 'Me', state: { ticker: 'ORBT' } }],
+      heartbeat: [],
+    })
+    expect(me).toMatchObject({ isSelf: true, onFloor: false, ticker: null })
   })
 })
 

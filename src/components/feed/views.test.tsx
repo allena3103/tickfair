@@ -67,6 +67,23 @@ describe('NewsFeedView', () => {
     expect(out).toContain('5m ago')
     expect(out.match(/>new</g)).toHaveLength(1)
   })
+  it('survives a missing or malformed publishedAt', () => {
+    const bad = [undefined, 'soon', Number.NaN, 1e20] as unknown as number[]
+    const out = html(
+      <NewsFeedView
+        status="ready"
+        now={now}
+        items={[
+          ...bad.map((publishedAt, i) => ({ id: `bad${i}`, roundId: 'r', ticker: 'ORBT' as const, headline: `Bad ${i}`, body: '', publishedAt })),
+          { id: 'ok', roundId: 'r', ticker: 'CURA', headline: 'Good', body: '', publishedAt: now - 10_000 },
+        ]}
+      />,
+    )
+    expect(out).toContain('Bad 0')
+    expect(out).toContain('Bad 3')
+    expect(out.match(/<time/g)).toHaveLength(1)
+    expect(out.match(/>new</g)).toHaveLength(1)
+  })
 })
 
 describe('TapeView', () => {

@@ -12,6 +12,8 @@ export interface OnlineTrader {
 
 interface MergeInput {
   self: { userId: string; name: string } | null
+  /** Whether this viewer's own floor socket is connected right now. */
+  selfOnFloor: boolean
   /** PresenceRoom peers (excludes self). */
   peers: { userId: string; userName: string; state: Record<string, unknown> }[]
   /** Roster users with a recent heartbeat (usePresence). */
@@ -26,7 +28,7 @@ function asTicker(v: unknown): Ticker | null {
  * One row per online user: yourself first, then everyone on the floor, then
  * users with only a recent heartbeat. Sorted by name within each group.
  */
-export function mergeOnline({ self, peers, heartbeat }: MergeInput): OnlineTrader[] {
+export function mergeOnline({ self, selfOnFloor, peers, heartbeat }: MergeInput): OnlineTrader[] {
   const byId = new Map<string, OnlineTrader>()
   for (const p of peers) {
     byId.set(p.userId, {
@@ -50,8 +52,8 @@ export function mergeOnline({ self, peers, heartbeat }: MergeInput): OnlineTrade
     {
       userId: self.userId,
       name: self.name || 'You',
-      ticker: selfPeer ? asTicker(selfPeer.state.ticker) : null,
-      onFloor: true,
+      ticker: selfOnFloor && selfPeer ? asTicker(selfPeer.state.ticker) : null,
+      onFloor: selfOnFloor,
       isSelf: true,
     },
     ...others,

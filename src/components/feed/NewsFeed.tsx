@@ -13,6 +13,12 @@ import { feedStatus, resolveFeedRound, useCurrentRound } from '../shell/useCurre
 import { useNow } from '../shell/useNow'
 import { FeedEmpty, FeedError, FeedPanel, FeedSkeleton } from './FeedPanel'
 
+/** Sort key for a timestamp that may be missing or malformed (sorts last). */
+function timeOf(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : -Infinity
+}
+
 /** A headline this recent gets the "new" marker. */
 const FRESH_MS = 60_000
 
@@ -32,7 +38,7 @@ export function NewsFeed({ roundId, limit = 30, className }: { roundId?: string;
     () =>
       query.records
         .map((r) => ({ ...r.data, id: r.recordId }))
-        .sort((a, b) => b.publishedAt - a.publishedAt || b.id.localeCompare(a.id))
+        .sort((a, b) => timeOf(b.publishedAt) - timeOf(a.publishedAt) || b.id.localeCompare(a.id))
         .slice(0, limit),
     [query.records, limit],
   )
@@ -70,7 +76,10 @@ export function NewsFeedView({
       ) : (
         <ul className="divide-y divide-border">
           {items.map((n) => {
-            const fresh = now - n.publishedAt < FRESH_MS
+            const at = Number(n.publishedAt)
+            // Date only accepts ±8.64e15 ms; anything else would make toISOString throw.
+            const hasTime = Number.isFinite(at) && Math.abs(at) <= 8.64e15
+            const fresh = hasTime && now - at < FRESH_MS
             return (
               <li
                 key={n.id}
@@ -80,9 +89,11 @@ export function NewsFeedView({
                 <div className="flex items-center gap-2 font-mono text-xs">
                   <span className="rounded-sm border border-border px-1.5 text-foreground">{n.ticker}</span>
                   {fresh && <span className="uppercase tracking-wider text-primary">new</span>}
-                  <time className="ml-auto text-muted-foreground" dateTime={new Date(n.publishedAt).toISOString()}>
-                    {formatRelativeTime(n.publishedAt, now)}
-                  </time>
+                  {hasTime && (
+                    <time className="ml-auto text-muted-foreground" dateTime={new Date(at).toISOString()}>
+                      {formatRelativeTime(at, now)}
+                    </time>
+                  )}
                 </div>
                 <p className="mt-1 text-sm font-medium leading-snug">{n.headline}</p>
                 {n.body && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{n.body}</p>}
