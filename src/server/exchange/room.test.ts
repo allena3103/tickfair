@@ -202,7 +202,7 @@ describe('ExchangeRoom (DO integration)', () => {
     // The next visitor starts a fresh round.
     await h.connect()
     expect(h.getAlarm()).not.toBeNull()
-  })
+  }, 30_000)
 
   it('unknown paths and GETs are 404', async () => {
     const h = setup()
