@@ -2,6 +2,32 @@
 
 Worker: ui-shell (wave 1). Worktree `C:/DeepSpace-project-ui-shell`, branch `agent/ui-shell`, port 5185.
 
+## Update: evaluator fixes (BUG-1, BUG-4, BUG-5)
+
+I rebased `agent/ui-shell` onto `agent/exchange` (`5d96efe`, everything merged including ui-trading). It was a fast-forward with no conflicts. The fix commit is `9476861`. BUG-2 is a known limitation and was left alone, as instructed.
+
+| Bug | Fix | Test |
+|-----|-----|------|
+| **BUG-1**: `/#how-it-works` changed the URL but didn't scroll (client navigation from `/trade`, and direct load on 390×844 and 1280×600). | New `src/components/shell/useScrollToHash.ts`: a router effect on `location.hash` and `location.key` that calls `scrollIntoView` once the section has rendered. It's smooth, or instant under reduced motion. `index.tsx` calls it on mount and on hash change. It uses no SDK hooks, and effects don't run during prerender. I also added an in-page "How it works" link in the landing header (`data-testid="landing-how-link"`). | `smoke.spec.ts` › "landing hash links": direct load of `/#how-it-works` puts the heading in the viewport at **390×844** and **1280×600**, with `scrollY > 0`. A third case clicks the in-page link from the top at 390×844 (the section starts out of view) and checks it scrolls into view. ui-trading's existing "fairness note links to…" test covers navigating from `/trade`, and it passes. |
+| **BUG-4**: the online count included users who left up to 5 minutes ago (SDK heartbeat), and your own row said "on floor" instead of your ticker. | `FloorPresence` now exposes `myTicker`, because PresenceRoom `peers` never include you. `mergeOnline` takes `selfTicker`, and the new `countOnFloor()` counts only floor connections (peers, plus you while connected). The header count and the panel's "N online" both use it. Heartbeat-only users are still listed, but under a "Recently active · not counted" label and marked "away". | Unit: self ticker, count excludes heartbeat-only users, signed-out count is 0, no ticker while disconnected, and the view labels recently active users. e2e presence: the count is exactly 2 with both users on the floor and **drops to 1 right away** when B leaves (B's heartbeat is still fresh). On `/trade`, A's own row shows `ORBT`. |
+| **BUG-5**: the leaderboard rounded P&L to whole dollars ("$0 unchanged" against +$0.27 in positions). Your own name was truncated at 390 px. The diagram labels were on the wrong curves. | Leaderboard and rounds P&L now show cents (`<Delta kind="money">`), so the arrow, sign, and number match the positions panel. Equity stays in whole dollars. It's a column of totals, and ui-trading's collab spec already compares it to positions within $0.50. The name cell no longer truncates: it wraps (`break-words`, `min-w-[7rem]`), and the number columns are `whitespace-nowrap`. On the diagram, "▲ buyers" now sits past the end of the green demand curve and "▼ sellers" past the red supply curve. | Unit: a +27¢ portfolio shows `+$0.27` with `data-direction="up"`, and equity shows `$100,000`. Visual: direct load of `/#how-it-works` at 390×844 lands on the section, and each label sits next to its own curve. |
+
+Checks on `9476861`:
+- `npx tsc --noEmit` and `npm run lint`: both exit 0.
+- `npx deepspace test run unit --port 5185`: 17 files, 266 tests passed (the whole merged app).
+- `npx deepspace test run e2e --port 5185`, run 1: exit 0, with 30 passed and 1 skipped.
+- The same command, run 2: exit 0, with 30 passed and 1 skipped.
+- The skip is ui-trading's optional `/trade` screenshot test, which needs `TRADE_SCREENSHOTS_DIR`. The `/trade` gate test now runs and passes, because the route exists.
+
+Files touched:
+- **Mine:** `src/pages/index.tsx`, `src/components/shell/{FloorPresence.tsx,AppHeader.tsx,useScrollToHash.ts}`, `src/components/feed/{onlineList.ts,OnlineTraders.tsx,Leaderboard.tsx,RoundsList.tsx,logic.test.ts,views.test.tsx}`.
+- **`tests/smoke.spec.ts`:** ui-trading has owned it since wave 2. I edited it on your instruction to add the e2e checks, adding cases and extending the presence test only.
+- **Not edited:** `tests/collab.spec.ts` and every other ui-trading file.
+
+**For ui-trading and the director:**
+- `useOnlineTraders()` now also returns `onlineCount`.
+- `OnlineTraders` lists heartbeat-only users under a separate label.
+
 ## Update: review round 2 (PASS with 2 minor findings, both fixed)
 
 | # | Finding | Fix | Proof |
@@ -146,4 +172,4 @@ I didn't touch `contracts.ts`, `package.json`, the lockfile, `index.html`, `seo.
 
 ## 7. Branch and commit
 
-Branch `agent/ui-shell`, rebased onto `agent/exchange` `99497b3`. The final code commit is `fdc8e1f` (the review round 2 fixes), and the report commit is the next one, on top of it.
+Branch `agent/ui-shell`, rebased onto `agent/exchange` `5d96efe`. The final code commit is `9476861` (the evaluator fixes), and the report commit is the next one, on top of it.
