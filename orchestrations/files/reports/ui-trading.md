@@ -1,4 +1,27 @@
-# Report: ui-trading (wave 2), evaluator run 2 fix
+# Report: ui-trading (wave 2), evaluator run 3 fixes
+
+**Evaluator run 3 fixes, on code commit `3ba2718`,** rebased onto `agent/exchange` at `e6cc3e4` (clean). Every check was rerun by me on that commit.
+
+| Item | Fix | Test |
+|------|-----|------|
+| **BUG-1** A stale reject ("You do not have enough free shares to sell.") stayed on the ticket after free shares or cash changed. | `OrderTicket.tsx`: a reject is stored with the free cash and free shares it was judged against. It is shown only while both are unchanged (`rejectIsStale` in `logic.ts`). This is derived on each render, so cancelling the resting order that caused it, or a fill, removes the message at once. | Unit: `rejectIsStale (BUG-1)`, where unchanged free cash and shares keep the reject, and a change in either drops it. |
+| **BUG-3** The round-break overlay rounded P&L to whole dollars. | `RoundBreak.tsx`: P&L now shows cents. Equity stays whole dollars, which matches the current `Leaderboard` and `/rounds`: both show equity in whole dollars and P&L in cents. | Unit (`views.test.tsx`): standings with +$123.45 render `+$123.45` and equity `$100,123`. |
+| **PERF** One `/trade` page re-sent `core.subscribe` for tape about 1,335 times in about 12 minutes, with the same subscription ids. | The cause was not options identity: the SDK's `useQuery` keys on `JSON.stringify(options)`. In `RecordSocket.handleMessage`, `RECORD_CHANGE` re-sends `core.subscribe` (same subscription id) for **every query on that collection with `orderBy` or `limit`**, while plain `where` queries are patched in place. Tape gets new rows every batch. Fix: my queries on busy collections now use `where` only, and I sort and cap on the client. Each set is bounded per round. <br>• `PriceChart`: tape `{ roundId, ticker }` (at most about 900 rows per round; `chartPoints` keeps the newest 300). <br>• `trade.tsx`: orders `{ roundId, status, userId }` (at most 20 live), fills `{ roundId, userId }` (sorted, capped to 100 for display), portfolios `{ roundId }` (human traders only). <br>• `rounds` keeps `orderBy/limit 5`: rounds change twice per round, and without a limit that query would grow without bound. | New e2e in `tests/smoke.spec.ts`: `'terminal queries are not re-subscribed on every print (PERF)'`. In a live round, it counts `core.subscribe` frames sent per subscription over 30 s (and asserts at least 20 batches ran). **With the fix:** chart tape 0, orders 0, fills 0, portfolios 0 (each must be ≤ 1, allowing one reconnect). **Negative check:** with the old chart query (`orderBy: 'at', limit: 300`) put back, chart tape was **26** in 30 s and the test failed (exit 1). |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 274 passed (274)` |
+| e2e | `npx deepspace test run e2e --port 5187` | exit 0, `32 passed`, `1 skipped` (opt-in screenshots), 1.7 min. The PERF test logged `{"chartTape":0,"orders":0,"fills":0,"portfolios":0,"feedTape":23}` |
+
+**Request for the director (outside my files):** ui-shell's `Tape` (`src/components/feed/Tape.tsx`, `useQuery('tape', { where, orderBy: 'at', orderDir: 'desc', limit })`) still re-sends `core.subscribe` about once per batch: `feedTape` was 23–28 per 30 s in my runs, on both `/trade` and `/home`. That is the rest of the evaluator's count. The same fix applies: query `where: { roundId[, ticker] }` with no `orderBy`/`limit`, then sort by `at` and slice on the client. `NewsFeed` uses the same pattern, but news changes rarely. My PERF test already reports `feedTape`, so it can confirm that fix.
+
+Files changed: `src/components/trading/OrderTicket.tsx`, `RoundBreak.tsx`, `PriceChart.tsx`, `logic.ts`, `logic.test.ts`, `views.test.tsx`, `src/pages/(app)/(protected)/trade.tsx`, `tests/smoke.spec.ts`. All are in my ownership list.
+
+---
+
+## Evaluator run 2 fix
 
 **E2-1, on code commit `5b5503a`,** rebased onto `agent/exchange` at `634b864` (clean). Every check was rerun by me on that commit.
 
@@ -173,6 +196,8 @@ Round 1 requests:
 
 ## 6. Lessons
 
+- **SDK `useQuery` with `orderBy` or `limit` re-queries on every change in its collection** (`RecordSocket` re-sends `core.subscribe` on each `RECORD_CHANGE`). On busy collections (tape, portfolios, orders, fills), query with `where` only and sort and slice on the client. Options identity doesn't matter: the hook keys on the JSON of the options.
+
 - **`ex.phase` can arrive before `ex.snapshot`** on the first connect (the room's `ensureAwake` broadcasts first). The client must ignore deltas until it has a snapshot.
 - **The book can be crossed between batches.** Resting orders wait for the next clear, so `depth` can show the best bid above the best ask. Don't show a negative spread.
 - **Order and fill rows don't arrive in the action response.** `placeOrder` returns `{ orderId, batchId }`, and the rows show up about 1 s later through the mirror. Key test assertions on `data-order-id`.
@@ -183,7 +208,8 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`. This report is committed on top of it.
+- Evaluator run 3 code commit: `3ba2718`, on `agent/exchange` at `e6cc3e4`. This report is committed on top of it.
+- E2-1 code commit: `5b5503a`, on `agent/exchange` at `634b864`.
 - Evaluator-fix code commit: `123426e`, on `agent/exchange` at `5d96efe`.
 - Review round 2 code commit: `1206662`.
 - Review round 1 code commit: `e48f195`.
