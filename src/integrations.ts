@@ -26,5 +26,8 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
+  // News generation (cron + owner-only breakingNews). Owner-billed, so the
+  // browser proxy refuses it (src/server/http-routes.ts); server code only.
+  anthropic: { billing: 'developer' },
   // openai: { billing: 'developer', anonymous: true },
 }

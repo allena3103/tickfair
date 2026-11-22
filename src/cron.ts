@@ -26,10 +26,33 @@
  *   }
  */
 
+
 import type { CronTask } from 'deepspace/worker'
+import { buildCronContext } from 'deepspace/worker'
+import type { Env } from '../worker.js'
+import { createRng, drawNewsEvent } from './engine/market/index.js'
+import { runNewsEvent } from './server/news/runtime.js'
+import { newsTick, randomSalt } from './server/news/tick.js'
 
-export const tasks: CronTask[] = []
+/**
+ * `news`: every minute (the platform minimum), fire with probability 0.5 from
+ * a per-minute salted RNG. Only a live round reaches the paid LLM call
+ * (`runNewsEvent` checks `rounds` first). Only admins can trigger, pause, or
+ * resume it (see the `/ws/cron` resolver in src/server/realtime-routes.ts).
+ */
+export const tasks: CronTask[] = [{ name: 'news', intervalMinutes: 1 }]
 
-export async function runTask(_name: string, _env: unknown): Promise<void> {
-  // No-op — implement your cron tasks here. Dispatch on `_name`.
+export async function runTask(name: string, env: Env): Promise<void> {
+  if (name === 'news') {
+    const ctx = buildCronContext(env, env.OWNER_USER_ID, `app:${env.DEEPSPACE_APP_ID}`)
+    await newsTick(env, {
+      createRng,
+      drawNewsEvent,
+      run: runNewsEvent,
+      invoke: (endpoint, body) => ctx.integrations.call(endpoint, body),
+      now: Date.now(),
+      salt: randomSalt(),
+      log: (line) => console.log(line),
+    })
+  }
 }
