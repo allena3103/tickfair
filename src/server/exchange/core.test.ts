@@ -477,6 +477,82 @@ describe('shock-first wake', () => {
   })
 })
 
+describe('a failure while opening the next round', () => {
+  /** A core whose next round open throws once (newId is first called inside openRound). */
+  function setupFailingOpen() {
+    const { sql, txn } = memoryDb()
+    let n = 0
+    let failNextOpen = false
+    const errors: string[] = []
+    const core = new ExchangeCore({
+      sql,
+      txn,
+      durations: { liveMs: LIVE_MS, breakMs: BREAK_MS },
+      newId: () => {
+        if (failNextOpen) {
+          failNextOpen = false
+          throw new Error('injected open failure')
+        }
+        return `id${String(++n).padStart(8, '0')}`
+      },
+      log: () => {},
+      logError: (l) => errors.push(l),
+    })
+    return { core, sql, errors, armFailure: () => (failNextOpen = true) }
+  }
+
+  function playAndClose(core: Core) {
+    core.wake(T0)
+    place(core, T0, 'userA', { ticker: 'ORBT', side: 'buy', type: 'market', qty: 5 })
+    runBatches(core, 1)
+    const roundId = core.meta()!.roundId
+    return roundId
+  }
+
+  const roundRecord = (sql: SqlLike, roundId: string) => queued<RoundRecord>(sql, 'rounds').find((r) => r.recordId === roundId)!.data
+
+  it('at break end leaves the closed round untouched, keeps the break, and the next tick opens a round', () => {
+    const { core, sql, errors, armFailure } = setupFailingOpen()
+    const oldRound = playAndClose(core)
+    core.tick(T0 + LIVE_MS, false)
+    const published = roundRecord(sql, oldRound)
+    expect(published).toMatchObject({ status: 'done', winnerId: 'userA' })
+    expect(published.standings).toHaveLength(1)
+
+    armFailure()
+    const msgs = core.tick(T0 + LIVE_MS + BREAK_MS, false)
+    const retryAt = T0 + LIVE_MS + 2 * BREAK_MS
+    expect(msgs).toEqual([{ type: 'ex.phase', roundId: oldRound, phase: 'break', phaseEndsAt: retryAt }])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatch(/^\[exchange\] round open failed, retrying at \d+: step failed: injected open failure$/)
+    expect(core.meta()).toMatchObject({ roundId: oldRound, phase: 'break', phaseEndsAt: retryAt, halted: 0 })
+    expect(roundRecord(sql, oldRound)).toEqual(published)
+
+    expect(core.tick(retryAt - 1, false)).toEqual([])
+    const next = core.tick(retryAt, false)
+    expect(next[0]).toMatchObject({ type: 'ex.phase', phase: 'live' })
+    expect(core.meta()!.roundId).not.toBe(oldRound)
+    expect(core.meta()!.phase).toBe('live')
+    expect(roundRecord(sql, oldRound)).toEqual(published)
+  })
+
+  it('on a stale wake, the overdue round still closes with its standings even though the open fails', () => {
+    const { core, sql, errors, armFailure } = setupFailingOpen()
+    const oldRound = playAndClose(core)
+    armFailure()
+    const now = T0 + 10 * LIVE_MS
+    core.wake(now)
+    expect(errors.filter((e) => e.includes('INVARIANT'))).toEqual([])
+    const rec = roundRecord(sql, oldRound)
+    expect(rec).toMatchObject({ status: 'done', winnerId: 'userA' })
+    expect(rec.standings).toHaveLength(1)
+    expect(core.meta()).toMatchObject({ roundId: oldRound, phase: 'break', phaseEndsAt: now + BREAK_MS })
+    core.tick(now + BREAK_MS, false)
+    expect(core.meta()).toMatchObject({ phase: 'live' })
+    expect(core.meta()!.roundId).not.toBe(oldRound)
+  })
+})
+
 describe('invariant self-check', () => {
   it('a broken balance rolls the batch back, logs INVARIANT, and halts the round with no winner', () => {
     const { core, sql, errors } = setup()
