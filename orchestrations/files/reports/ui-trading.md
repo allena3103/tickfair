@@ -1,4 +1,28 @@
-# Report: ui-trading (wave 2), round 2
+# Report: ui-trading (wave 2), review round 1
+
+**Review round 1 fixes, on code commit `e48f195`.** Every check was rerun by me on that commit.
+
+| Finding | Fix | Proof |
+|---------|-----|-------|
+| **F1** One `orders` query with `limit: 200` and no order or status filter could drop live orders from the panel and from `reservedBy`. | `trade.tsx` now runs two queries, `where { roundId, status: 'open' }` and `where { roundId, status: 'partial' }`, merged by the new `liveOrderRows` in `logic.ts`. An order caught in both sets during an open → partial move counts once, as partial. Finished orders never enter these queries, so they can't crowd out live ones. The engine caps a trader at 20 live orders, well under each query's limit of 100. | Unit: `liveOrderRows (F1)`, with 20 open + 1 partial giving 21 rows and the right reserved cash, and the dedupe case. e2e: the collab test's resting order still appears in A's open orders and is cancelled from there, so the `status` filter works against the real RecordRoom. |
+| **F2** The leaderboard check only proved both pages agreed. | The collab test now also checks that A's leaderboard equity (whole dollars) is within $0.50 of A's own `my-equity` (portfolio × live `last`, in cents), using `toPass` because a batch can land between the two reads. | Both e2e runs below pass. |
+| **Q1** Does the break overlay find the finished round? | Yes, from the engine code (`src/server/exchange/core.ts` `closeRound`/`openRound`): the `rounds` record id is the round id, the close writes `status: 'done'` with standings in one mirror row, and the next round's record is only written when that round opens. So during a break the newest round is the one `ex.phase` names. To not depend on "newest", the page now looks the round up by id (`finishedRound(records, stream.roundId)` over the 5 newest rounds) and shows standings only once that record is `done`. "Tallying" shows only until the mirror delivers the done record. One edge case: after an invariant halt, the done record has empty standings, so the overlay says "No human traders this round". | Unit: `finishedRound (Q1)`, where a done record with the matching id returns it, and a live, missing, or different-id record returns null. |
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run type-check` | exit 0 |
+| Lint | `npm run lint` | exit 0 |
+| Unit | `npx deepspace test run unit --port 5187` | exit 0, `Test Files 17 passed (17)`, `Tests 261 passed (261)` |
+| e2e run 1 | `npx deepspace test run e2e --port 5187` | exit 0, `27 passed`, `1 skipped` (opt-in screenshots), 48.2 s |
+| e2e run 2 | same | exit 0, `27 passed`, `1 skipped`, 48.4 s |
+
+Files changed in this round: `src/pages/(app)/(protected)/trade.tsx`, `src/components/trading/logic.ts`, `src/components/trading/logic.test.ts`, `tests/collab.spec.ts`. All are in my ownership list. No open requests for the director.
+
+The round 2 and round 1 report follows unchanged, except the commit line in §7.
+
+---
+
+## Round 2
 
 **Round 2 (after director answers):** I rebased `agent/ui-trading` onto `agent/exchange` at `cfc6d6d` (`workers: 1` and `id="how-it-works"`). The rebase was clean. I added an e2e check that the fairness link lands on the section, then reran every check on code commit `c792ecb`. Results are in §1. The round 1 text below is kept, with updates marked.
 
@@ -95,4 +119,5 @@ Round 1 requests:
 ## 7. Branch and commit
 
 - Branch: `agent/ui-trading`
-- Round 2 code commit: `c792ecb`, rebased on `agent/exchange` at `cfc6d6d`. This report is committed on top of it. (Round 1 code commit was `462f1a4`, before the rebase.)
+- Review round 1 code commit: `e48f195`. This report is committed on top of it.
+- Round 2 code commit: `c792ecb`, rebased on `agent/exchange` at `cfc6d6d`. (Round 1 code commit was `462f1a4`, before the rebase.)
