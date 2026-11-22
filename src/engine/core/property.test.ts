@@ -2,6 +2,9 @@
  * Property tests: a seeded random order stream run through reserve → clear →
  * settle → cancel for many batches, checking the money invariants after every
  * batch. Deterministic: a fixed PRNG seed, no Math.random, no clock.
+ *
+ * Speed: the hot loop never calls expect(). Every check is plain code that
+ * records a violation message; each test asserts once that the list is empty.
  */
 import { describe, expect, it } from 'vitest'
 import { TICKERS, type Side, type Ticker } from '../../shared/contracts'
@@ -36,92 +39,143 @@ function prng(seed: number) {
   }
 }
 
-type Totals = { cash: number; shares: Record<Ticker, number> }
+/** Collects violations. Stops storing after 50 so a broken engine can't blow up memory. */
+class Violations {
+  readonly list: string[] = []
+  fail(msg: string) {
+    if (this.list.length < 50) this.list.push(msg)
+  }
+}
+
+/** ClearResult and clearingPrice output are plain JSON values, so this is an exact equality check. */
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+type Totals = { cash: number; ORBT: number; CURA: number; VOLT: number }
 
 function totals(accounts: Map<string, Account>): Totals {
-  const shares = Object.fromEntries(TICKERS.map((t) => [t, 0])) as Record<Ticker, number>
-  let cash = 0
+  const t: Totals = { cash: 0, ORBT: 0, CURA: 0, VOLT: 0 }
   for (const a of accounts.values()) {
-    cash += a.cashCents + a.reservedCents
-    for (const t of TICKERS) shares[t] += a.holdings[t].qty
+    t.cash += a.cashCents + a.reservedCents
+    t.ORBT += a.holdings.ORBT.qty
+    t.CURA += a.holdings.CURA.qty
+    t.VOLT += a.holdings.VOLT.qty
   }
-  return { cash, shares }
+  return t
 }
 
-function assertAccountsSound(accounts: Map<string, Account>, book: BookOrder[]) {
+function checkConserved(v: Violations, now: Totals, before: Totals, where: string) {
+  // JSON.stringify turns NaN into null, so non-finite totals are rejected explicitly first.
+  for (const [k, n] of Object.entries(now)) if (!Number.isFinite(n)) v.fail(`${where}: total ${k} is ${n}`)
+  if (!same(now, before)) v.fail(`${where}: totals ${JSON.stringify(now)} != ${JSON.stringify(before)}`)
+}
+
+/**
+ * No negative cash, reserved, qty or reservedQty; qty >= reservedQty; and every
+ * reservation equals exactly what that trader's open orders hold. One pass over the book.
+ */
+function checkAccounts(v: Violations, accounts: Map<string, Account>, book: BookOrder[], where: string) {
+  const held = new Map<string, { cents: number; ORBT: number; CURA: number; VOLT: number }>()
+  for (const id of accounts.keys()) held.set(id, { cents: 0, ORBT: 0, CURA: 0, VOLT: 0 })
+  for (const o of book) {
+    const h = held.get(o.traderId)!
+    if (o.side === 'buy') h.cents += o.remaining * o.limitCents
+    else h[o.ticker] += o.remaining
+  }
   for (const [id, a] of accounts) {
-    expect(a.cashCents, `${id} cash`).toBeGreaterThanOrEqual(0)
-    expect(a.reservedCents, `${id} reserved`).toBeGreaterThanOrEqual(0)
+    const h = held.get(id)!
+    if (!(a.cashCents >= 0)) v.fail(`${where}: ${id} cash ${a.cashCents} not >= 0`)
+    if (!(a.reservedCents >= 0)) v.fail(`${where}: ${id} reserved ${a.reservedCents} not >= 0`)
+    if (a.reservedCents !== h.cents) v.fail(`${where}: ${id} reserved ${a.reservedCents} != book ${h.cents}`)
     for (const t of TICKERS) {
-      const h = a.holdings[t]
-      expect(h.reservedQty, `${id} ${t} reservedQty`).toBeGreaterThanOrEqual(0)
-      expect(h.qty, `${id} ${t} qty >= reservedQty`).toBeGreaterThanOrEqual(h.reservedQty)
-    }
-    // Reservations equal exactly what the trader's open orders hold.
-    const mine = book.filter((o) => o.traderId === id)
-    expect(a.reservedCents, `${id} reserved matches book`).toBe(
-      mine.filter((o) => o.side === 'buy').reduce((s, o) => s + o.remaining * o.limitCents, 0),
-    )
-    for (const t of TICKERS) {
-      expect(a.holdings[t].reservedQty, `${id} ${t} reservedQty matches book`).toBe(
-        mine.filter((o) => o.side === 'sell' && o.ticker === t).reduce((s, o) => s + o.remaining, 0),
-      )
+      const { qty, reservedQty } = a.holdings[t]
+      if (!(reservedQty >= 0)) v.fail(`${where}: ${id} ${t} reservedQty ${reservedQty} not >= 0`)
+      if (!(qty >= reservedQty)) v.fail(`${where}: ${id} ${t} qty ${qty} not >= reservedQty ${reservedQty}`)
+      if (reservedQty !== h[t]) v.fail(`${where}: ${id} ${t} reservedQty ${reservedQty} != book ${h[t]}`)
     }
   }
 }
 
-function assertClearSound(res: ClearResult, before: BookOrder[], lastCents: number) {
-  const byId = new Map(before.map((o) => [o.orderId, o]))
-  const seen = new Set<string>()
+function checkClear(v: Violations, res: ClearResult, before: BookOrder[], lastCents: number, where: string) {
+  const byId = new Map<string, BookOrder>()
+  for (const o of before) byId.set(o.orderId, o)
+  const filled = new Map<string, number>()
   let buyVol = 0
   let sellVol = 0
   for (const f of res.fills) {
-    const o = byId.get(f.orderId)!
-    expect(o, 'fill refers to a book order').toBeDefined()
-    expect(seen.has(f.orderId), 'one fill per order per batch').toBe(false)
-    seen.add(f.orderId)
-    expect(f.qty).toBeGreaterThan(0)
-    expect(f.qty, 'fill <= remaining').toBeLessThanOrEqual(o.remaining)
-    expect(f.priceCents, 'uniform price').toBe(res.clearCents)
-    expect(f.side).toBe(o.side)
-    expect(f.traderId).toBe(o.traderId)
+    const o = byId.get(f.orderId)
+    if (!o) {
+      v.fail(`${where}: fill for unknown order ${f.orderId}`)
+      continue
+    }
+    if (filled.has(f.orderId)) v.fail(`${where}: two fills for ${f.orderId}`)
+    filled.set(f.orderId, f.qty)
+    if (!(f.qty > 0)) v.fail(`${where}: fill qty ${f.qty} <= 0`)
+    if (f.qty > o.remaining) v.fail(`${where}: fill ${f.qty} > remaining ${o.remaining}`)
+    if (f.priceCents !== res.clearCents) v.fail(`${where}: fill price ${f.priceCents} != clear ${res.clearCents}`)
+    if (f.side !== o.side || f.traderId !== o.traderId) v.fail(`${where}: fill ${f.orderId} side/trader mismatch`)
     if (f.side === 'buy') {
-      expect(f.priceCents, 'buy price <= limit').toBeLessThanOrEqual(o.limitCents)
+      if (f.priceCents > o.limitCents) v.fail(`${where}: buy price ${f.priceCents} > limit ${o.limitCents}`)
       buyVol += f.qty
     } else {
-      expect(f.priceCents, 'sell price >= limit').toBeGreaterThanOrEqual(o.limitCents)
+      if (f.priceCents < o.limitCents) v.fail(`${where}: sell price ${f.priceCents} < limit ${o.limitCents}`)
       sellVol += f.qty
     }
   }
-  expect(buyVol).toBe(res.volume)
-  expect(sellVol).toBe(res.volume)
+  if (buyVol !== res.volume || sellVol !== res.volume) {
+    v.fail(`${where}: buy vol ${buyVol}, sell vol ${sellVol}, reported ${res.volume}`)
+  }
 
-  // Volume is the maximum possible over every integer price (not just candidates).
-  const live = before.filter((o) => o.remaining > 0)
-  if (live.length > 0) {
-    const prices = live.map((o) => o.limitCents)
-    let maxV = 0
-    for (let p = Math.min(...prices); p <= Math.max(...prices); p++) {
-      const d = live.filter((o) => o.side === 'buy' && o.limitCents >= p).reduce((s, o) => s + o.remaining, 0)
-      const s = live.filter((o) => o.side === 'sell' && o.limitCents <= p).reduce((s2, o) => s2 + o.remaining, 0)
-      maxV = Math.max(maxV, Math.min(d, s))
+  // Volume is the maximum possible over EVERY integer price in [min limit, max limit]
+  // (not just the engine's candidates). Prefix sums give D(p) and S(p) for all p in one pass.
+  let lo = Infinity
+  let hi = -Infinity
+  for (const o of before) {
+    if (o.remaining <= 0) continue
+    if (o.limitCents < lo) lo = o.limitCents
+    if (o.limitCents > hi) hi = o.limitCents
+  }
+  if (lo <= hi) {
+    const width = hi - lo + 1
+    const buyAt = new Float64Array(width)
+    const sellAt = new Float64Array(width)
+    for (const o of before) {
+      if (o.remaining <= 0) continue
+      if (o.side === 'buy') buyAt[o.limitCents - lo] += o.remaining
+      else sellAt[o.limitCents - lo] += o.remaining
     }
-    expect(res.volume, 'volume is maximal').toBe(maxV)
+    // D(p) = buys with limit >= p (suffix sum); S(p) = sells with limit <= p (prefix sum).
+    const demand = new Float64Array(width)
+    let acc = 0
+    for (let i = width - 1; i >= 0; i--) demand[i] = acc += buyAt[i]
+    let supply = 0
+    let maxV = 0
+    for (let i = 0; i < width; i++) {
+      supply += sellAt[i]
+      const vol = Math.min(demand[i], supply)
+      if (vol > maxV) maxV = vol
+    }
+    if (res.volume !== maxV) v.fail(`${where}: volume ${res.volume} is not the maximum ${maxV}`)
   }
 
   // After clearing, the remaining book does not cross.
-  const filled = new Map(res.fills.map((f) => [f.orderId, f.qty]))
-  const left = live.map((o) => ({ ...o, remaining: o.remaining - (filled.get(o.orderId) ?? 0) }))
-  const bestBid = Math.max(-Infinity, ...left.filter((o) => o.side === 'buy' && o.remaining > 0).map((o) => o.limitCents))
-  const bestAsk = Math.min(Infinity, ...left.filter((o) => o.side === 'sell' && o.remaining > 0).map((o) => o.limitCents))
-  expect(bestBid < bestAsk, `remaining book uncrossed (${bestBid} < ${bestAsk})`).toBe(true)
+  let bestBid = -Infinity
+  let bestAsk = Infinity
+  for (const o of before) {
+    if (o.remaining - (filled.get(o.orderId) ?? 0) <= 0) continue
+    if (o.side === 'buy') bestBid = Math.max(bestBid, o.limitCents)
+    else bestAsk = Math.min(bestAsk, o.limitCents)
+  }
+  if (!(bestBid < bestAsk)) v.fail(`${where}: remaining book crosses (${bestBid} >= ${bestAsk})`)
 
-  // Reproducible: same input, shuffled, gives an identical result.
+  // Reproducible: same input, reversed, gives an identical result.
   const again = clearBatch({ roundId: 'R', ticker: res.ticker, batchId: res.batchId, lastCents, orders: [...before].reverse() })
-  expect(again).toEqual(res)
+  if (!same(again, res)) v.fail(`${where}: reversed input gave a different ClearResult`)
 }
 
 function runStream(seed: number, batches: number) {
+  const v = new Violations()
   const rnd = prng(seed)
   const traders = Array.from({ length: 8 }, (_, i) => `T${i}`)
   const accounts = new Map<string, Account>()
@@ -133,7 +187,7 @@ function runStream(seed: number, batches: number) {
   const last: Record<Ticker, number> = { ORBT: 1_000, CURA: 2_500, VOLT: 400 }
   let book: BookOrder[] = []
   let nextId = 0
-  let stats = { fills: 0, clears: 0, rejects: 0, accepted: 0 }
+  const stats = { fills: 0, clears: 0, rejects: 0, accepted: 0 }
 
   for (let batchId = 1; batchId <= batches; batchId++) {
     // 1. New orders arrive.
@@ -155,21 +209,26 @@ function runStream(seed: number, batches: number) {
       accounts.set(traderId, r.acct)
       book.push({ orderId: `o${String(nextId++).padStart(6, '0')}`, traderId, ticker, side, limitCents, remaining: qty, batchId })
     }
-    assertAccountsSound(accounts, book)
+    checkAccounts(v, accounts, book, `batch ${batchId} after arrivals`)
 
     // 2. Clear each ticker and settle. Total cash and shares must not change.
     const before = totals(accounts)
     for (const ticker of TICKERS) {
+      const where = `batch ${batchId} ${ticker}`
       const orders = book.filter((o) => o.ticker === ticker)
       const res = clearBatch({ roundId: 'R', ticker, batchId, lastCents: last[ticker], orders })
-      expect(res).toEqual(clearBatch({ roundId: 'R', ticker, batchId, lastCents: last[ticker], orders }))
-      if (orders.length > 0) assertClearSound(res, orders, last[ticker])
-      expect(clearingPrice(orders, last[ticker])).toEqual(
-        res.clearCents === null ? null : { clearCents: res.clearCents, volume: res.volume },
-      )
+      if (!same(res, clearBatch({ roundId: 'R', ticker, batchId, lastCents: last[ticker], orders }))) {
+        v.fail(`${where}: same input gave a different ClearResult`)
+      }
+      if (orders.length > 0) checkClear(v, res, orders, last[ticker], where)
+      const price = clearingPrice(orders, last[ticker])
+      if (!same(price, res.clearCents === null ? null : { clearCents: res.clearCents, volume: res.volume })) {
+        v.fail(`${where}: clearingPrice ${JSON.stringify(price)} disagrees with clearBatch`)
+      }
       if (res.clearCents === null) continue
       stats.clears++
-      const byId = new Map(orders.map((o) => [o.orderId, o]))
+      const byId = new Map<string, BookOrder>()
+      for (const o of orders) byId.set(o.orderId, o)
       for (const f of res.fills) {
         stats.fills++
         const o = byId.get(f.orderId)!
@@ -179,8 +238,8 @@ function runStream(seed: number, batches: number) {
       last[ticker] = res.clearCents
     }
     book = book.filter((o) => o.remaining > 0)
-    expect(totals(accounts), `conservation at batch ${batchId}`).toEqual(before)
-    assertAccountsSound(accounts, book)
+    checkConserved(v, totals(accounts), before, `batch ${batchId} after clear`)
+    checkAccounts(v, accounts, book, `batch ${batchId} after clear`)
 
     // 3. Some resting orders are cancelled.
     const keep: BookOrder[] = []
@@ -189,24 +248,22 @@ function runStream(seed: number, batches: number) {
       else keep.push(o)
     }
     book = keep
-    expect(totals(accounts), `cancel conserves at batch ${batchId}`).toEqual(before)
-    assertAccountsSound(accounts, book)
+    checkConserved(v, totals(accounts), before, `batch ${batchId} after cancels`)
+    checkAccounts(v, accounts, book, `batch ${batchId} after cancels`)
   }
 
   // Round end: release everything; nothing may stay reserved.
   const before = totals(accounts)
   for (const o of book) accounts.set(o.traderId, releaseOrder(accounts.get(o.traderId)!, o))
-  for (const a of accounts.values()) {
-    expect(a.reservedCents).toBe(0)
-    for (const t of TICKERS) expect(a.holdings[t].reservedQty).toBe(0)
-  }
-  expect(totals(accounts)).toEqual(before)
-  return stats
+  checkAccounts(v, accounts, [], 'round end')
+  checkConserved(v, totals(accounts), before, 'round end')
+  return { stats, violations: v.list }
 }
 
 describe('property: seeded random order stream', () => {
   it('1,200 batches x 3 tickers keep money conserved and invariants intact (seed 1)', () => {
-    const stats = runStream(1, 1_200)
+    const { stats, violations } = runStream(1, 1_200)
+    expect(violations).toEqual([])
     // Make sure the stream actually exercised the engine.
     expect(stats.clears).toBeGreaterThan(500)
     expect(stats.fills).toBeGreaterThan(2_000)
@@ -214,11 +271,52 @@ describe('property: seeded random order stream', () => {
   }, 60_000)
 
   it('a second seed (seed 20261121, 600 batches) also holds', () => {
-    const stats = runStream(20_261_121, 600)
+    const { stats, violations } = runStream(20_261_121, 600)
+    expect(violations).toEqual([])
     expect(stats.clears).toBeGreaterThan(200)
   }, 60_000)
 
   it('the whole stream is reproducible', () => {
-    expect(runStream(7, 150)).toEqual(runStream(7, 150))
+    const a = runStream(7, 150)
+    const b = runStream(7, 150)
+    expect(a.violations).toEqual([])
+    expect(b).toEqual(a)
   }, 60_000)
+
+  it('the account and conservation checks report NaN (comparisons with NaN are always false)', () => {
+    const v = new Violations()
+    const acct = emptyAccount(1_000)
+    const nanCash = { ...acct, cashCents: Number.NaN }
+    const nanQty = { ...acct, holdings: { ...acct.holdings, VOLT: { qty: Number.NaN, reservedQty: 0 } } }
+    const nanReserved = { ...acct, holdings: { ...acct.holdings, CURA: { qty: 5, reservedQty: Number.NaN } } }
+    checkAccounts(v, new Map([['A', nanCash], ['B', nanQty], ['C', nanReserved]]), [], 'nan')
+    expect(v.list).toContain('nan: A cash NaN not >= 0')
+    expect(v.list).toContain('nan: B VOLT qty NaN not >= reservedQty 0')
+    expect(v.list).toContain('nan: C CURA reservedQty NaN not >= 0')
+    const w = new Violations()
+    const t = totals(new Map([['A', nanCash]]))
+    checkConserved(w, t, t, 'nan')
+    expect(w.list).toContain('nan: total cash is NaN')
+  })
+
+  it('the checker itself catches broken output (guards against a silently passing harness)', () => {
+    const v = new Violations()
+    const orders: BookOrder[] = [
+      { orderId: 'b', traderId: 'T0', ticker: 'ORBT', side: 'buy', limitCents: 105, remaining: 10, batchId: 1 },
+      { orderId: 's', traderId: 'T1', ticker: 'ORBT', side: 'sell', limitCents: 100, remaining: 10, batchId: 1 },
+    ]
+    const good = clearBatch({ roundId: 'R', ticker: 'ORBT', batchId: 1, lastCents: 100, orders })
+    checkClear(v, good, orders, 100, 'good')
+    expect(v.list).toEqual([])
+    // Under-filled: volume not maximal, book still crosses, not reproducible.
+    const bad: ClearResult = {
+      ...good,
+      volume: 4,
+      fills: good.fills.map((f) => ({ ...f, qty: 4 })),
+    }
+    checkClear(v, bad, orders, 100, 'bad')
+    expect(v.list.some((m) => m.includes('not the maximum'))).toBe(true)
+    expect(v.list.some((m) => m.includes('book crosses'))).toBe(true)
+    expect(v.list.some((m) => m.includes('different ClearResult'))).toBe(true)
+  })
 })

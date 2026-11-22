@@ -59,3 +59,31 @@ No contract or dependency changes. Two points to review and approve:
 ## 7. Branch and commit
 
 Branch `agent/engine-core`. Final code commit `d254e90`. This report is committed on top of it in the next commit.
+
+## Addendum: property test speed-up (director request)
+
+Rebased `agent/engine-core` onto `agent/exchange` (fast-forward to `99497b3`). Commit `5089766` changes only `src/engine/core/property.test.ts`.
+
+- **Same stream:** fixed seeds 1 (1,200 batches) and 20261121 (600 batches), plus the reproducibility run (seed 7, 150 batches ×2). Batch counts are unchanged.
+- **Same checks:** every invariant is kept. Checks run as plain code in the hot loop, collect violations, and each test asserts once that the list is empty. Equality checks compare JSON strings, which is exact for these plain-data results.
+- **Max-volume check:** the brute-force check over every integer price now uses prefix sums (O(range + orders)) instead of re-filtering the book for each price. The meaning is unchanged.
+- **Account checks:** they now do one pass over the book per check instead of one filter per account.
+- **New guard test:** it shows the checker flags an under-filled result (not max volume, crossed book, not reproducible), so the harness can't silently pass.
+- **Mutation checks still caught:** removing the buyer refund gives "batch 3 after clear: totals … != …". Not releasing sell reservations gives "reservedQty 33 != book 0".
+
+Checks on `5089766`: `npx tsc --noEmit` exit 0; `npm run lint` exit 0.
+`npx deepspace test run unit --port 5182` ×3: run 1 86/86 pass, **run 2 1 failed in `src/engine/market/market.test.ts` (market-sim's file)**, run 3 86/86 pass. The runner doesn't print per-file times, so I timed the same suite with `npx vitest run --reporter=json` ×3 (same config and parallelism):
+
+| Run | property.test.ts | market.test.ts | result |
+|-----|------------------|----------------|--------|
+| 1 | 2,883 ms | 10,232 ms | 86/86 |
+| 2 | 1,741 ms | 7,590 ms | 86/86 |
+| 3 | 2,964 ms | 11,104 ms | 86/86 |
+
+Standalone, property.test.ts went from 11.9 s to 0.77 s of test time. `market.test.ts` is now the slowest file, and it caused the one load-related failure seen here.
+
+## Addendum: review round 2 fixes
+
+- **F1:** the seed-7 reproducibility test now asserts `a.violations` is empty before comparing `b` to `a`.
+- **F2:** the negativity checks are NaN-safe (`!(x >= 0)`, `!(qty >= reservedQty)`). The conservation check also rejects non-finite totals, because `JSON.stringify(NaN)` is `null` and two NaN totals would otherwise compare equal. A new self-test shows NaN cash, qty, reservedQty, and total cash are all reported. Reverting the cash check to `< 0` makes that self-test fail (checked, then restored).
+- `npx tsc --noEmit` exit 0; `npm run lint` exit 0; `npx deepspace test run unit --port 5182` ×3: 87/87 passed each run (8 files).
