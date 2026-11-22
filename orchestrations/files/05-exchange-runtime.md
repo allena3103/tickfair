@@ -65,3 +65,10 @@ Changing `src/engine/**`: report bugs to the director, who routes them. Also out
   Report the observed numbers.
 - [ ] No `INVARIANT` lines in logs during the run.
 - [ ] Final report per `BRIEF.md`.
+
+## Director decisions made during the build
+
+- **No paid LLM calls** in the manual run or tests (user decision; see `NEWS_LLM_IN_DEV`). The price-shock check runs as an integration test that posts to the real `ExchangeRoom` fetch entry with a fixed `deltaBps`, instead of on a running dev server through `breakingNews`. Approved.
+- **A malformed `/exchange/shock` body returns HTTP 400 with code `bad_request`.** This is approved and added to the shock response contract.
+- **Round-length overrides** (`EXCHANGE_ROUND_LIVE_MS`, `EXCHANGE_ROUND_BREAK_MS`) reach the local worker only through lines appended to `.dev.vars` after `dev start`. They must never be committed. The builder's report documents this.
+- **`portfolios.cashCents` is total cash**, including cash reserved for open buys. Equity = cashCents + Σ qty × last.
