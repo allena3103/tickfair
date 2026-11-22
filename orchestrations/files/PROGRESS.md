@@ -22,7 +22,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | ui-shell | 1 | **merged** | – | – | – | |
 | exchange-runtime | 2 | **merged** | – | – | – | |
 | ui-trading | 2 | not started | – | – | – | |
-| review-money | 2b | not started | – | – | – | |
+| review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
 | evaluator | final | not started | – | – | – | |
 
 ## Log
@@ -44,3 +44,4 @@ The director updates this file as each feature moves through the loop. Newest no
 - exchange-runtime report in. Director checks: tsc, lint, and 226 unit tests pass. e2e was flaky: 4 failures when a run landed in the round break. Review R1 FAIL: (1) e2e tests depend on wall-clock round phase, (2) the mirror drops rows after 5 quick retries, which could leave a round stuck `live`, (3) a weak retry test. All three were sent back to the builder.
 - exchange-runtime merged after 3 rounds (R1 FAIL; R2 PASS + 1 fix; R3 PASS). The director added `bad_request` to the shock contract. Full suite on `agent/exchange`: 230 unit, 22 e2e (1 skipped until `/trade` exists), build OK.
 - Next: ui-trading (sequential).
+- Independent money review of agent/exchange@0a03c97: PASS. One minor finding: halt() during a break can overwrite the previous round's results. Sent back to exchange-runtime. ui-trading is building.
