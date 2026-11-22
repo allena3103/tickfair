@@ -5,7 +5,7 @@
 
 ## Owns
 
-`src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `tests/api.spec.ts`.
+`src/server/exchange-room.ts`, `src/server/exchange/**`, `src/actions/orders.ts`, `src/actions/orders.test.ts`, `tests/api.spec.ts`.
 
 ## Out of scope
 
