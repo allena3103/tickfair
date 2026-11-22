@@ -21,7 +21,7 @@ The director updates this file as each feature moves through the loop. Newest no
 | news | 1 | **merged** | – | – | – | |
 | ui-shell | 1 | **merged** | – | – | – | |
 | exchange-runtime | 2 | **merged** | – | – | – | |
-| ui-trading | 2 | not started | – | – | – | |
+| ui-trading | 2 | **merged** | builder ✓, director ✓ (264 unit, 27 e2e ×2, build) | 3 (R1 PASS+2 minor; R2 PASS+minors; R3 FAIL rejected by the director after a source check: rounding already correct) | ✓ | e2e flaked once in ~8 runs; cause not yet identified. |
 | review-money | 2b | PASS (1 minor sent to exchange-runtime) | – | 1 | – | No blocker or major findings in money, fairness, identity, leaks, or concurrency. |
 | evaluator | final | not started | – | – | – | |
 
@@ -45,3 +45,5 @@ The director updates this file as each feature moves through the loop. Newest no
 - exchange-runtime merged after 3 rounds (R1 FAIL; R2 PASS + 1 fix; R3 PASS). The director added `bad_request` to the shock contract. Full suite on `agent/exchange`: 230 unit, 22 e2e (1 skipped until `/trade` exists), build OK.
 - Next: ui-trading (sequential).
 - Independent money review of agent/exchange@0a03c97: PASS. One minor finding: halt() during a break can overwrite the previous round's results. Sent back to exchange-runtime. ui-trading is building.
+- exchange-runtime halt fix merged (from the money review). ui-trading merged. The director set Playwright `workers: 1`, because test files share accounts and the SDK's per-user presence drops a user when any one of their sessions closes. That presence behaviour is a known limitation. The director also added the `#how-it-works` anchor.
+- Full suite on `agent/exchange`: 264 unit, 27 e2e (twice), build OK. Next: the evaluator.
