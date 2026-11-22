@@ -6,11 +6,10 @@
  * - 'developer': The app owner pays (default).
  * - 'user': The calling user pays.
  *
- * Every integration requires a signed-in caller. Set `anonymous: true` on a
- * 'developer' integration to let signed-out visitors call it too — the owner
- * then pays for anyone who can reach the app.
- *
- * Integrations not listed here default to 'developer' with sign-in required.
+ * The browser proxy (`/api/integrations/:name/:endpoint`) forwards only
+ * 'user' integrations, for a signed-in caller billed to their own JWT.
+ * 'developer' integrations, including any integration not listed here, run
+ * only from server code (cron, server actions); browsers get 403.
  *
  * IMPORTANT: any integration backed by per-user connected accounts (Google,
  * Composio) must be 'user' — the api-worker resolves the account from the
@@ -22,12 +21,11 @@
 
 export const integrations: Record<
   string,
-  { billing: 'developer' | 'user'; anonymous?: boolean }
+  { billing: 'developer' | 'user' }
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
   // News generation (cron + owner-only breakingNews). Owner-billed, so the
   // browser proxy refuses it (src/server/http-routes.ts); server code only.
   anthropic: { billing: 'developer' },
-  // openai: { billing: 'developer', anonymous: true },
 }

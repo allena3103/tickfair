@@ -233,7 +233,7 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
   app.all('/api/integrations/:name/:endpoint', async (c) => {
     const integrationName = c.req.param('name')
     // Params arrive decoded, so `..%2F..%2Fapi%2Fusers` would otherwise
-    // reach another api-worker route with the owner's token. Plain
+    // reach another api-worker route with the caller's token. Plain
     // identifiers only, and own keys only for the config.
     const target = integrationPath(integrationName, c.req.param('endpoint'))
     if (!target) return c.json({ error: 'Unknown integration' }, 404)
