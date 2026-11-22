@@ -212,4 +212,17 @@ test.describe('trade terminal (signed in)', () => {
     }
     expect(errors).toEqual([])
   })
+
+  test('the fairness note links to the batch auction explanation', async ({ users }) => {
+    const [a] = await users(1)
+    const page = a.page
+    await page.goto('/trade')
+    const link = page.getByTestId('fairness-hint').getByRole('link', { name: 'How it works' })
+    await expect(link).toBeVisible({ timeout: 20_000 })
+    await link.click()
+    await expect(page).toHaveURL(/\/#how-it-works$/)
+    const section = page.locator('#how-it-works')
+    await expect(section.getByRole('heading', { name: 'How a batch auction works' })).toBeVisible({ timeout: 15_000 })
+    await expect(section).toBeInViewport()
+  })
 })
