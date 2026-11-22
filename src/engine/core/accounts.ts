@@ -32,12 +32,30 @@ export function emptyAccount(cashCents: number): Account {
   return { cashCents, reservedCents: 0, holdings }
 }
 
-/** Lowest and highest allowed limit: ±PRICE_BAND_BPS of last, rounded inward, never below 1 cent. */
+/**
+ * The INCLUSIVE band of allowed limits: lo <= limit <= hi.
+ * The exact edges last * (1 ± PRICE_BAND_BPS/10000) are inside. When an edge is
+ * not a whole cent, it rounds inward (lo up, hi down) to the nearest whole cent
+ * that is still inside. Exact integer arithmetic, no floating point.
+ * Callers (market-sim bots, the runtime) should take edges from here or from
+ * marketLimit rather than computing them, so they always agree with the check.
+ */
 export function priceBand(lastCents: number): { lo: number; hi: number } {
   assertPositiveInt(lastCents, 'lastCents')
-  const lo = Math.max(1, Math.ceil((lastCents * (BPS - PRICE_BAND_BPS)) / BPS))
-  const hi = Math.floor((lastCents * (BPS + PRICE_BAND_BPS)) / BPS)
+  const lo = Math.max(1, ceilDiv(lastCents * (BPS - PRICE_BAND_BPS), BPS))
+  const hi = floorDiv(lastCents * (BPS + PRICE_BAND_BPS), BPS)
   return { lo, hi }
+}
+
+/** floor(n / d) for non-negative safe integers, without float division. */
+function floorDiv(n: number, d: number): number {
+  return (n - (n % d)) / d
+}
+
+/** ceil(n / d) for non-negative safe integers, without float division. */
+function ceilDiv(n: number, d: number): number {
+  const r = n % d
+  return (n - r) / d + (r === 0 ? 0 : 1)
 }
 
 /** A market order is a limit order at the band edge: the top for buys, the bottom for sells. */

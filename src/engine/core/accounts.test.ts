@@ -61,6 +61,43 @@ describe('price band and market orders', () => {
     expect(after).toEqual({ ...emptyAccount(1_000_000 - 10_000), holdings: { ...after.holdings, ORBT: { qty: 10, reservedQty: 0 } } })
   })
 
+  it('band is inclusive: an order exactly at last * (1 ± 10%) is accepted', () => {
+    const a = emptyAccount(10_000_000_000)
+    // Whole-cent edges: 1000 -> 900 and 1100 exactly; 2500 -> 2250 and 2750 exactly.
+    for (const [last, lo, hi] of [
+      [1_000, 900, 1_100],
+      [2_500, 2_250, 2_750],
+      [10, 9, 11],
+    ] as const) {
+      const ctx = { lastCents: last, openOrders: [] }
+      expect(checkAndReserve(a, { side: 'buy', ticker: 'ORBT', qty: 1, limitCents: hi }, ctx).ok).toBe(true)
+      expect(checkAndReserve(a, { side: 'buy', ticker: 'ORBT', qty: 1, limitCents: lo }, ctx).ok).toBe(true)
+      expect(marketLimit('buy', last)).toBe(hi)
+      expect(marketLimit('sell', last)).toBe(lo)
+    }
+  })
+
+  it('for every last price 1..20000, marketLimit edges are accepted and one cent beyond is rejected', () => {
+    const a = withShares(emptyAccount(10_000_000_000), 1_000)
+    const at = (last: number, side: Side, limitCents: number) =>
+      checkAndReserve(a, { side, ticker: 'ORBT', qty: 1, limitCents }, { lastCents: last, openOrders: [] })
+    for (let last = 1; last <= 20_000; last++) {
+      const hi = marketLimit('buy', last)
+      const lo = marketLimit('sell', last)
+      // Edges are the true band edges rounded inward to whole cents.
+      expect(hi * 10_000).toBeLessThanOrEqual(last * 11_000)
+      expect((hi + 1) * 10_000).toBeGreaterThan(last * 11_000)
+      if (lo > 1) {
+        expect(lo * 10_000).toBeGreaterThanOrEqual(last * 9_000)
+        expect((lo - 1) * 10_000).toBeLessThan(last * 9_000)
+      }
+      expect(at(last, 'buy', hi).ok).toBe(true)
+      expect(at(last, 'sell', lo).ok).toBe(true)
+      expect(at(last, 'buy', hi + 1)).toEqual({ ok: false, code: 'outside_band' })
+      if (lo > 1) expect(at(last, 'sell', lo - 1)).toEqual({ ok: false, code: 'outside_band' })
+    }
+  })
+
   it('rejects limits just outside the band, accepts the edges', () => {
     const a = emptyAccount(10_000_000)
     expect(code(a, 'buy', 1, 1_101)).toBe('outside_band')
