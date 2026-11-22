@@ -61,13 +61,13 @@ flowchart LR
 ```
 
 - **One room holds all the money.** `ExchangeRoom` is a custom Durable Object built on the SDK's `BaseRoom`. Each batch's clearing, settlement, and bot quotes run in one synchronous SQLite transaction with no awaits. After every batch it checks that no money or shares were created or destroyed and no balance went negative. If a check fails, the round halts.
-- **Why a custom room:** the SDK's built-in record room keeps its write path private, server actions can interleave with each other, and the scheduler can only run once a minute. A matching engine needs atomic, serialized writes and a 1-second timer.
+- **The main tradeoff: a custom room instead of the built-in record store for the engine.** The SDK's built-in record room keeps its write path private, server actions can interleave with each other, and the scheduler can only run once a minute. A matching engine needs atomic, serialized writes and a 1-second timer. The cost is more code to own and review (hence the independent money review and the per-batch checks); the benefit is a fairness guarantee the platform's general-purpose primitives can't give.
 - **Results are copied into DeepSpace's record store**, so the app gets the platform's permissions, live sync, and reconnect handling instead of rebuilding them. Your open orders and fills are visible only to you. Portfolios and trades are public, so the leaderboard is just portfolios × live prices.
 - **Bots** (a market maker and a noise trader) keep the market moving even with one player. They go through the same order intake and rules as players and are left off the leaderboard.
 - **News:** a scheduled job picks the stock, direction, and size of each price move. Claude only writes the headline. The headline is published before the price starts moving, and if the AI reply fails validation, there is no price move.
 - **Rounds:** 15 minutes of trading, then a 2-minute results screen. Then everyone resets to $100,000.
 
-### DeepSpace features used
+### DeepSpace platform features used
 
 | Feature | Used for |
 |---|---|
@@ -76,15 +76,21 @@ flowchart LR
 | Server actions | Place order, cancel order, and the owner-only "breaking news" trigger |
 | Custom Durable Object (`BaseRoom`) | The matching engine, the 1-second timer, and the live market stream |
 | Scheduled jobs | When news events fire. Cron controls are admin-only. |
-| AI integration (`anthropic/chat-completion`) | Headline writing, billed to the owner and run only on the server |
 | Presence | Who's online and which stock each trader is watching |
 | `deepspace/testing` | Multi-user browser tests with three test accounts |
 
-**Left out on purpose:**
+### Integrations used: one, on purpose
+
+| Integration | Used for |
+|---|---|
+| `anthropic/chat-completion` (Claude Haiku) | Writing news headlines. Billed to the owner and run only on the server, so players can't spend the owner's credits. |
+
+One integration was enough. Every other candidate either fought the design or added cost without making trading better:
 - Payments: the money is fake by design.
 - Real stock quotes: they would fight the news engine.
 - Image generation and text-to-speech: too slow and costly for the value.
 - Chat: presence covers the social feel.
+- Google/Composio: present in the template config but unused; nothing in a trading game needs a user's connected accounts.
 
 ---
 
