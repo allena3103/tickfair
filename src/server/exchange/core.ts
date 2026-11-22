@@ -140,8 +140,11 @@ export class ExchangeCore {
    */
   wake(now: number, activity = true): Msgs {
     return this.guarded(now, () => {
-      if (activity) writeMeta(this.sql, { lastActivityAt: now })
-      const msgs = readMeta(this.sql) ? this.advancePhases(now, true) : this.openRound(now)
+      // A fresh room always gets a lastActivityAt, even when a shock (not activity) woke it,
+      // so the idle clock starts now instead of never.
+      const fresh = !readMeta(this.sql)
+      if (activity || fresh) writeMeta(this.sql, { lastActivityAt: now })
+      const msgs = fresh ? this.openRound(now) : this.advancePhases(now, true)
       const m = this.mustMeta()
       if (m.phase === 'live' && now - m.nextBatchAt > RESUME_AFTER_MS) {
         writeMeta(this.sql, { nextBatchAt: now + BATCH_MS })
@@ -173,7 +176,9 @@ export class ExchangeCore {
   isIdle(now: number, openSockets: number): boolean {
     const m = readMeta(this.sql)
     if (!m) return true
-    return openSockets === 0 && now - m.lastActivityAt >= IDLE_PAUSE_MS
+    // A missing value (meta written before this field existed) counts as long ago, never as "not idle".
+    const last = Number.isFinite(m.lastActivityAt) ? m.lastActivityAt : 0
+    return openSockets === 0 && now - last >= IDLE_PAUSE_MS
   }
 
   /**

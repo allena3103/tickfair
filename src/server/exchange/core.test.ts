@@ -456,6 +456,27 @@ describe('idle pause and resume', () => {
   })
 })
 
+describe('shock-first wake', () => {
+  it('a fresh room woken only by a shock, with no sockets or orders, goes idle after IDLE_PAUSE_MS', () => {
+    const { core } = setup({ liveMs: 15 * 60_000, breakMs: BREAK_MS })
+    core.wake(T0, false)
+    expect(core.shock(T0, { newsId: 'n1', ticker: 'ORBT', deltaBps: 200, rampBatches: 5 })).toEqual({ ok: true })
+    expect(core.meta()).toMatchObject({ phase: 'live', lastActivityAt: T0 })
+    expect(core.isIdle(T0 + IDLE_PAUSE_MS - 1, 0)).toBe(false)
+    expect(core.isIdle(T0 + IDLE_PAUSE_MS, 0)).toBe(true)
+    // Idle: no batches run, and the only wake left is the round end.
+    expect(core.nextWakeAt(true)).toBe(T0 + 15 * 60_000)
+  })
+
+  it('treats a missing lastActivityAt as long ago, not as never idle', () => {
+    const { core, sql } = setup()
+    core.wake(T0, false)
+    sql.exec(`DELETE FROM meta WHERE k = 'lastActivityAt'`)
+    expect(core.isIdle(T0 + 1, 0)).toBe(true)
+    expect(core.isIdle(T0 + 1, 1)).toBe(false)
+  })
+})
+
 describe('invariant self-check', () => {
   it('a broken balance rolls the batch back, logs INVARIANT, and halts the round with no winner', () => {
     const { core, sql, errors } = setup()

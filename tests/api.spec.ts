@@ -85,6 +85,11 @@ dsTest.describe('News API (signed in)', () => {
 // Bots trade too, so assertions are about rules (one price per batch, typed
 // rejections, ownership), never exact quantities. Tokens only ever travel as
 // an Authorization header or WS query param; nothing is logged.
+//
+// Assumes the default round durations (ROUND_LIVE_MS 15 min, ROUND_BREAK_MS
+// 2 min): no EXCHANGE_ROUND_LIVE_MS / EXCHANGE_ROUND_BREAK_MS overrides in
+// .dev.vars. Timeouts are sized from ROUND_BREAK_MS, and the two-user test needs
+// a live round with at least 60 s left.
 // ---------------------------------------------------------------------------
 
 const APP_ID = /DEEPSPACE_APP_ID\s*=\s*"([^"]+)"/.exec(
