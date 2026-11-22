@@ -115,8 +115,8 @@ I directed a single **main agent** (Claude Code), and the main agent acted as **
    - Run 4 failed because traders who joined late saw others without their stock.
    - Run 5 passed all 18, and run 6, a targeted recheck, found nothing.
 
-**What I caught or decided myself**
-- A builder found that the starter template's browser integration route let any signed-in user spend my AI credits. I closed it for every owner-billed service, not just Claude.
+**What I caught or decided myself** (working through the main agent)
+- A builder found that the starter template's browser integration route let any signed-in user spend my AI credits. I had the main agent close it for every owner-billed service, not just Claude.
 - I chose to keep paid AI calls off on dev and test servers, and made a single verified real call instead.
 - I treated reviewer findings with judgment. One reviewer flagged reject codes I had approved as "unapproved", so I updated the spec instead of reverting. I rejected another finding after checking the source showed the rounding was already correct.
 - Test credentials were generated and piped straight into the CLI. They never appear in any file, log, or commit.
