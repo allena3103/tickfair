@@ -194,7 +194,7 @@ function HowItWorks() {
     { n: '03', title: 'Settle', body: 'Everyone fills at that one price. Ties split pro rata.' },
   ]
   return (
-    <section className="border-t border-border">
+    <section id="how-it-works" className="scroll-mt-16 border-t border-border">
       <div className="mx-auto grid max-w-6xl gap-12 px-4 py-20 sm:px-6 lg:grid-cols-2">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight">How a batch auction works</h2>

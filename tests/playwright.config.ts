@@ -22,6 +22,10 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   timeout: 30_000,
   retries: 0,
+  // Specs share the same test accounts across files, and the SDK's per-user
+  // presence drops a user when any one of their sessions closes, so parallel
+  // files make presence assertions racy. One worker keeps them deterministic.
+  workers: 1,
   use: {
     baseURL: BASE_URL,
     headless: true,
