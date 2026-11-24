@@ -49,3 +49,14 @@ reuses the current CLI login and requires no separate connection. If it reports
 headless shell without an action, run `npx deepspace auth login --help` and use
 the operator-supplied credential path it names; never invent credentials or put
 a password on the command line.
+
+## Prompt log (required)
+
+Log every prompt the user gives in `PROMPTS.local.md`. This file is gitignored and private: never commit it, force-add it, or copy it anywhere tracked.
+
+- **When:** add the entry in the same turn you handle the prompt, before you reply.
+- **Format:** a new `## Prompt N: <short title>` section, numbered after the last one. Quote the prompt **word for word** (keep typos) in a `>` block, then add a short **What the agent did** note: actions taken, decisions the user made, and what was verified.
+- **Short follow-ups** like "continue" go in their own entry, or with the prompt they continue.
+- **Never edit or reword** earlier prompts. You may fill in an earlier entry's outcome when it finishes.
+- **Never** put credentials, tokens, or other secrets in the log.
+- [PROMPTS.md](./PROMPTS.md) is the public log for judges. The user picks which prompts go there. Don't edit it unless the user asks.
