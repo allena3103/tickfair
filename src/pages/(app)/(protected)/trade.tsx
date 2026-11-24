@@ -87,7 +87,7 @@ export default function TradePage() {
     [fills.records, userId],
   )
 
-  // Every human trader this round; bots have no portfolio record.
+  // Every human trader this round, plus the sim players (shown with a BOT tag); other bots have no portfolio record.
   const portfolios = useQuery<PortfolioRecord>('portfolios', { where: { roundId } })
   const portfolioData = useMemo(() => portfolios.records.map((r) => r.data), [portfolios.records])
   const mine = useMemo(() => portfolioData.find((p) => p.userId === userId) ?? null, [portfolioData, userId])

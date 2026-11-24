@@ -26,14 +26,4 @@ export {
   type BotIntent,
   type BotState,
 } from './bots'
-export {
-  SIM_PLAYERS,
-  SIM_QTY,
-  SIM_REVERSION_BPS,
-  SIM_SLIP_BPS,
-  simPlayerOrders,
-  type SimPlayer,
-  type SimStrategy,
-  type SimView,
-  type SimWallet,
-} from './sims'
+export { SIM_PLAYERS, simPlayerOrders, type SimPlayer, type SimStrategy, type SimView, type SimWallet } from './sims'
