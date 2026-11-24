@@ -3,7 +3,7 @@
  * env vars that are meant for local test and evaluation runs.
  */
 import { ROUND_BREAK_MS, ROUND_LIVE_MS, TICKERS, type Ticker } from '../../shared/contracts.js'
-import { MM_BOT_ID, NOISE_BOT_ID } from '../../engine/market/index.js'
+import { MM_BOT_ID, NOISE_BOT_ID, depthBotId } from '../../engine/market/index.js'
 
 export interface Durations {
   liveMs: number
@@ -47,7 +47,9 @@ export const SNAPSHOT_PRINTS = 60
 /** Depth levels per side. */
 export const DEPTH_LEVELS = 10
 
-export const BOT_IDS = [MM_BOT_ID, NOISE_BOT_ID] as const
+const DEPTH_BOT_IDS = TICKERS.map(depthBotId)
+
+export const BOT_IDS: readonly string[] = [MM_BOT_ID, NOISE_BOT_ID, ...DEPTH_BOT_IDS]
 export const isBotId = (userId: string): boolean => userId.startsWith('bot:')
 
 const perTicker = (qty: number): Record<Ticker, number> =>
@@ -56,9 +58,19 @@ const perTicker = (qty: number): Record<Ticker, number> =>
 /**
  * Bot accounts are seeded at every round start so long-only bots can sell
  * (LESSONS 11). The maker quotes up to 200 shares a side per ticker per batch;
- * these stocks last a full round even if players lean on one side.
+ * these stocks last a full round even if players lean on one side. A depth
+ * bot posts at most 120 shares a side per batch and holds only its own ticker.
  */
 export const BOT_SEED: Record<string, { cashCents: number; shares: Record<Ticker, number> }> = {
   [MM_BOT_ID]: { cashCents: 50_000_000_00, shares: perTicker(20_000) },
   [NOISE_BOT_ID]: { cashCents: 5_000_000_00, shares: perTicker(5_000) },
+  ...Object.fromEntries(
+    TICKERS.map((t) => [depthBotId(t), { cashCents: 50_000_000_00, shares: { ...perTicker(0), [t]: 20_000 } }]),
+  ),
+}
+
+export const BOT_NAMES: Record<string, string> = {
+  [MM_BOT_ID]: 'Market maker',
+  [NOISE_BOT_ID]: 'Noise trader',
+  ...Object.fromEntries(DEPTH_BOT_IDS.map((id) => [id, 'Depth maker'])),
 }

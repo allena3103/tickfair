@@ -11,9 +11,15 @@ export {
 } from './fundamental'
 export { drawNewsEvent, MAJOR_BPS, MAJOR_CHANCE, MINOR_BPS, RAMP_BATCHES } from './news'
 export {
+  DEPTH_BOT_PREFIX,
+  DEPTH_LEVELS_PER_SIDE,
+  DEPTH_SIZE,
+  DEPTH_STEP_BPS,
   MM_BOT_ID,
   NOISE_BOT_ID,
   bandFor,
+  depthBotId,
+  depthQuotes,
   initialBotState,
   marketMakerQuotes,
   noiseTraderOrders,

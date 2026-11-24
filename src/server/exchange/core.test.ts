@@ -11,7 +11,7 @@ import {
   type TapeRecord,
 } from '../../shared/contracts'
 import { priceBand } from '../../engine/core'
-import { INITIAL_PRICES, MM_BOT_ID, NOISE_BOT_ID, createRng } from '../../engine/market'
+import { DEPTH_LEVELS_PER_SIDE, INITIAL_PRICES, MM_BOT_ID, NOISE_BOT_ID, createRng, depthBotId } from '../../engine/market'
 import { IDLE_PAUSE_MS } from './config'
 import { ExchangeCore } from './core'
 import { flushMirror, pendingCount } from './mirror'
@@ -285,6 +285,39 @@ describe('batch', () => {
       expect(o.limitCents).toBeGreaterThanOrEqual(lo)
       expect(o.limitCents).toBeLessThanOrEqual(hi)
     }
+  })
+
+  it('depth bots rest several levels behind the maker without rejects, within the per-trader limits', () => {
+    const { core, sql, logs, errors } = setup()
+    core.wake(T0)
+    const totalsAtStart = totals(sql)
+    const { msgs } = runBatches(core, 30)
+    expect(logs.filter((l) => l.includes('bot intent skipped'))).toEqual([])
+    expect(errors).toEqual([])
+
+    const book = rows<{ userId: string; ticker: string; side: string; limitCents: number; batchId: number }>(
+      sql,
+      `SELECT userId, ticker, side, limitCents, batchId FROM book WHERE status IN ('open', 'partial')`,
+    )
+    for (const t of TICKERS) {
+      const depth = book.filter((o) => o.userId === depthBotId(t))
+      expect(depth.length).toBeGreaterThan(0)
+      expect(depth.length).toBeLessThanOrEqual(Math.min(MAX_ORDERS_PER_BATCH, 2 * DEPTH_LEVELS_PER_SIDE))
+      expect(depth.every((o) => o.ticker === t)).toBe(true)
+      const mmBid = book.find((o) => o.userId === MM_BOT_ID && o.ticker === t && o.side === 'buy')
+      const mmAsk = book.find((o) => o.userId === MM_BOT_ID && o.ticker === t && o.side === 'sell')
+      for (const o of depth) {
+        if (o.side === 'buy') expect(o.limitCents).toBeLessThan(mmBid!.limitCents)
+        else expect(o.limitCents).toBeGreaterThan(mmAsk!.limitCents)
+      }
+    }
+    const last = msgs.filter((x) => x.type === 'ex.batch').at(-1)
+    if (last?.type !== 'ex.batch') throw new Error('no batch')
+    for (const t of TICKERS) {
+      expect(last.depth[t].bids.length).toBeGreaterThan(1)
+      expect(last.depth[t].asks.length).toBeGreaterThan(1)
+    }
+    expect(totals(sql)).toEqual(totalsAtStart)
   })
 
   it('does not clear early, and keeps the clock without drift', () => {

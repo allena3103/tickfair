@@ -42,6 +42,7 @@ import {
   MM_BOT_ID,
   applyShock,
   createRng,
+  depthQuotes,
   initialBotState,
   initialFundamentals,
   marketMakerQuotes,
@@ -51,6 +52,7 @@ import {
 import { COMPANIES } from '../news/companies.js'
 import {
   BOT_IDS,
+  BOT_NAMES,
   BOT_SEED,
   DEPTH_LEVELS,
   IDLE_PAUSE_MS,
@@ -350,7 +352,7 @@ export class ExchangeCore {
       const seed = BOT_SEED[botId]
       const acct = emptyAccount(seed.cashCents)
       for (const t of TICKERS) acct.holdings[t].qty = seed.shares[t]
-      insertAccount(this.sql, botId, roundId, botId === MM_BOT_ID ? 'Market maker' : 'Noise trader', acct)
+      insertAccount(this.sql, botId, roundId, BOT_NAMES[botId], acct)
     }
 
     const { liveMs } = this.d.durations
@@ -568,9 +570,11 @@ export class ExchangeCore {
     const state = loadBotState(this.sql, MM_BOT_ID)
     const mm = marketMakerQuotes(state, market, last, createRng(`${m.roundSecret}|mm|${batchId}`))
     const noise = noiseTraderOrders(last, createRng(`${m.roundSecret}|noise|${batchId}`))
+    // Depth rests behind this batch's maker quotes, so it needs them first.
+    const depth = depthQuotes(mm.intents, last, createRng(`${m.roundSecret}|depth|${batchId}`))
     saveBotState(this.sql, MM_BOT_ID, mm.state)
 
-    for (const intent of [...mm.intents, ...noise]) {
+    for (const intent of [...mm.intents, ...depth, ...noise]) {
       const { lo, hi } = priceBand(last[intent.ticker])
       const limitCents = Math.min(hi, Math.max(lo, intent.limitCents))
       const res = this.submit(

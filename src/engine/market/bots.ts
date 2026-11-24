@@ -1,6 +1,7 @@
 /**
  * Bots. They only produce order intents. The runtime submits them through the
- * same reserve and matching path as players (bot ids `bot:mm`, `bot:noise`).
+ * same reserve and matching path as players (bot ids `bot:mm`, `bot:noise`,
+ * and one `bot:depth:<TICKER>` per ticker).
  *
  * Why the market maker lags (the skill window): its price estimate closes only
  * ~20–30% of the gap to the hidden fundamental each batch, and the fundamental
@@ -27,6 +28,17 @@ export const MM_MAX_SKEW_BPS = 200
 
 export const NOISE_CHANCE = 0.3
 export const NOISE_QTY = { lo: 1, hi: 50 } as const
+
+/**
+ * Depth bots: one account per ticker, so each posts at most 2 × 3 = 6 orders
+ * per batch, inside the per-trader MAX_ORDERS_PER_BATCH and MAX_OPEN_ORDERS.
+ */
+export const DEPTH_BOT_PREFIX = 'bot:depth:'
+export const DEPTH_LEVELS_PER_SIDE = 3
+export const DEPTH_STEP_BPS = { lo: 5, hi: 15 } as const
+export const DEPTH_SIZE = { lo: 5, hi: 40 } as const
+
+export const depthBotId = (t: Ticker): string => `${DEPTH_BOT_PREFIX}${t}`
 
 export interface BotIntent {
   botId: string
@@ -147,6 +159,43 @@ export function noiseTraderOrders(last: Record<Ticker, number>, rng: Rng): BotIn
       qty,
       limitCents: side === 'buy' ? band.hi : band.lo,
     })
+  }
+  return intents
+}
+
+/**
+ * Thin resting liquidity behind the market maker's quotes, so the ladder
+ * shows several levels a side. Buy level k sits k steps below the maker's
+ * bid, sell level k sits k steps above its ask, so depth orders never cross
+ * the maker or each other: only players and the noise trader can fill them,
+ * and the depth bots can't move the price on their own.
+ *
+ * A side the maker didn't quote this batch (it went one-sided at the band
+ * edge) gets no depth either; anchoring it elsewhere could cross the maker.
+ * Levels that would fall outside the band of `last` are dropped, not clamped,
+ * so every level is strictly behind the maker and no two share a price.
+ */
+export function depthQuotes(mmIntents: BotIntent[], last: Record<Ticker, number>, rng: Rng): BotIntent[] {
+  const intents: BotIntent[] = []
+  for (const t of TICKERS) {
+    // Draw every value each time so the sequence doesn't depend on outcomes.
+    const stepBps = rng.int(DEPTH_STEP_BPS.lo, DEPTH_STEP_BPS.hi)
+    const sizes = Array.from({ length: DEPTH_LEVELS_PER_SIDE * 2 }, () => rng.int(DEPTH_SIZE.lo, DEPTH_SIZE.hi))
+    const lastCents = last[t]
+    if (!validPrice(lastCents)) continue
+    const step = Math.max(1, Math.round((lastCents * stepBps) / 10_000))
+    const band = bandFor(lastCents)
+
+    const sides: [Side, number][] = [['buy', -1], ['sell', 1]]
+    for (const [s, [side, dir]] of sides.entries()) {
+      const anchor = mmIntents.find((i) => i.botId === MM_BOT_ID && i.ticker === t && i.side === side)
+      if (!anchor || !validPrice(anchor.limitCents)) continue
+      for (let k = 1; k <= DEPTH_LEVELS_PER_SIDE; k++) {
+        const limitCents = anchor.limitCents + dir * k * step
+        if (limitCents < band.lo || limitCents > band.hi) break
+        intents.push({ botId: depthBotId(t), ticker: t, side, qty: sizes[s * DEPTH_LEVELS_PER_SIDE + k - 1], limitCents })
+      }
+    }
   }
   return intents
 }

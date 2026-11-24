@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TICKERS, type Ticker } from '../../shared/contracts'
 import {
+  DEPTH_LEVELS_PER_SIDE,
   INITIAL_PRICES,
   MAJOR_BPS,
   MIN_PRICE_CENTS,
@@ -9,6 +10,8 @@ import {
   applyShock,
   bandFor,
   createRng,
+  depthBotId,
+  depthQuotes,
   drawNewsEvent,
   initialBotState,
   initialFundamentals,
@@ -378,5 +381,86 @@ describe('noiseTraderOrders', () => {
     for (let i = 0; i < 200; i++) {
       expect(noiseTraderOrders(lastAtInitial(), a)).toEqual(noiseTraderOrders(lastAtInitial(), b))
     }
+  })
+})
+
+describe('depthQuotes', () => {
+  it('rests strictly behind the maker, in band, within per-trader limits, sizes in range', () => {
+    const rng = createRng('depth-bounds')
+    const funds = initialFundamentals()
+    let state = initialBotState()
+    const last = lastAtInitial()
+    const bad: string[] = []
+    let levels = 0
+    for (let b = 0; b < 2_000; b++) {
+      for (const t of TICKERS) {
+        if (b % 97 === 0) funds[t] = applyShock(funds[t], rng.int(-800, 800), rng.int(10, 20))
+        funds[t] = stepFundamental(funds[t], rng)
+        state.inventory[t] = rng.int(-3_000, 3_000)
+      }
+      const mm = marketMakerQuotes(state, funds, last, rng)
+      state = mm.state
+      const depth = depthQuotes(mm.intents, last, rng)
+      levels += depth.length
+      for (const t of TICKERS) {
+        const band = bandFor(last[t])
+        const mine = depth.filter((d) => d.ticker === t)
+        if (mine.length > 2 * DEPTH_LEVELS_PER_SIDE) bad.push(`b${b} ${t}: ${mine.length} orders`)
+        const bid = quote(mm.intents, t, 'buy')
+        const ask = quote(mm.intents, t, 'sell')
+        for (const d of mine) {
+          const anchor = d.side === 'buy' ? bid : ask
+          const behind = anchor !== undefined && (d.side === 'buy' ? d.limitCents < anchor.limitCents : d.limitCents > anchor.limitCents)
+          // Never crosses either maker quote.
+          const noCross = (!ask || d.side !== 'buy' || d.limitCents < ask.limitCents) && (!bid || d.side !== 'sell' || d.limitCents > bid.limitCents)
+          const ok =
+            d.botId === depthBotId(t) &&
+            behind &&
+            noCross &&
+            Number.isInteger(d.limitCents) &&
+            d.limitCents >= band.lo &&
+            d.limitCents <= band.hi &&
+            Number.isInteger(d.qty) &&
+            d.qty >= 5 &&
+            d.qty <= 40
+          if (!ok) bad.push(`b${b} ${t}: ${JSON.stringify(d)} mm ${bid?.limitCents}/${ask?.limitCents} band ${band.lo}-${band.hi}`)
+        }
+        const prices = mine.map((d) => `${d.side}${d.limitCents}`)
+        if (new Set(prices).size !== prices.length) bad.push(`b${b} ${t}: repeated price ${prices}`)
+        if (bid && ask) last[t] = Math.round((bid.limitCents + ask.limitCents) / 2)
+      }
+    }
+    expect(bad).toEqual([])
+    // Guard against passing vacuously: most batches should carry full depth.
+    expect(levels).toBeGreaterThan(2_000 * TICKERS.length * 5)
+  })
+
+  it('adds no depth on a side the maker did not quote', () => {
+    const mm: BotIntent[] = [{ botId: 'bot:mm', ticker: 'ORBT', side: 'buy', qty: 100, limitCents: bandFor(12_000).hi }]
+    const out = depthQuotes(mm, lastAtInitial(), createRng('one-sided'))
+    expect(out.every((d) => d.ticker === 'ORBT' && d.side === 'buy')).toBe(true)
+    expect(out).toHaveLength(DEPTH_LEVELS_PER_SIDE)
+  })
+
+  it('drops levels that would leave the band instead of stacking them on the edge', () => {
+    const lo = bandFor(12_000).lo
+    const mm: BotIntent[] = [{ botId: 'bot:mm', ticker: 'ORBT', side: 'buy', qty: 100, limitCents: lo + 1 }]
+    const out = depthQuotes(mm, lastAtInitial(), createRng('edge-drop'))
+    expect(out.length).toBeLessThan(DEPTH_LEVELS_PER_SIDE)
+    expect(out.every((d) => d.limitCents >= lo)).toBe(true)
+  })
+
+  it('ignores quotes from other bots and skips a ticker with no valid last price', () => {
+    const quotes: BotIntent[] = [{ botId: 'bot:noise', ticker: 'CURA', side: 'buy', qty: 10, limitCents: 4_400 }]
+    expect(depthQuotes(quotes, lastAtInitial(), createRng('x'))).toEqual([])
+    const mm: BotIntent[] = [{ botId: 'bot:mm', ticker: 'CURA', side: 'buy', qty: 10, limitCents: 4_400 }]
+    expect(depthQuotes(mm, { ...lastAtInitial(), CURA: Number.NaN }, createRng('x'))).toEqual([])
+  })
+
+  it('is deterministic for a seed', () => {
+    const mm = marketMakerQuotes(initialBotState(), initialFundamentals(), lastAtInitial(), createRng('m')).intents
+    const a = createRng('dd')
+    const b = createRng('dd')
+    for (let i = 0; i < 200; i++) expect(depthQuotes(mm, lastAtInitial(), a)).toEqual(depthQuotes(mm, lastAtInitial(), b))
   })
 })
