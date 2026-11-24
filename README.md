@@ -14,12 +14,10 @@
 
 ## Docs
 
-| Topic | Where |
-|---|---|
-| Fairness, architecture, bots, news, rounds | [docs/how-it-works.md](docs/how-it-works.md) |
-| DeepSpace features, integrations, main tradeoff | [docs/deepspace.md](docs/deepspace.md) |
-| Run, test, deploy | [docs/development.md](docs/development.md) |
-| How agents built it, what I checked myself | [docs/process.md](docs/process.md) |
-| What's verified, known limitations, next steps | [docs/status.md](docs/status.md) |
-| Visual design | [docs/design/](docs/design/) |
-| Original plan and agent briefs (historical) | [PLAN.md](PLAN.md), [orchestrations/files/](orchestrations/files/) |
+- **How it works:** orders are batched every second and cleared at one price, so speed gives no edge. One server-side room settles all trades, and bots keep the market moving. [More](docs/how-it-works.md)
+- **DeepSpace usage:** sign-in, permissioned records, server actions, scheduled jobs, presence, and a custom room; one integration (Claude for news headlines). [More](docs/deepspace.md)
+- **Development:** `npm ci`, then `npx deepspace dev start`. [More](docs/development.md)
+- **How it was built:** I directed one main agent, which ran builders in parallel worktrees, fresh reviewers, and a skeptical evaluator. [More](docs/process.md)
+- **Status:** live and checked in production; a few known limitations. [More](docs/status.md)
+- **Design:** the visual direction and style tile. [More](docs/design/)
+- **History:** the original plan and agent briefs. [PLAN.md](PLAN.md), [orchestrations/files/](orchestrations/files/)
