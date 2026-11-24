@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TICKERS, type Ticker } from '../../shared/contracts'
+import { START_CASH_CENTS, TICKERS, type Ticker } from '../../shared/contracts'
 import {
   DEPTH_LEVELS_PER_SIDE,
   INITIAL_PRICES,
@@ -16,6 +16,10 @@ import {
   initialBotState,
   initialFundamentals,
   marketMakerQuotes,
+  simPlayerOrders,
+  SIM_PLAYERS,
+  type SimView,
+  type SimWallet,
   noiseTraderOrders,
   stepFundamental,
   type BotIntent,
@@ -461,5 +465,93 @@ describe('depthQuotes', () => {
     const a = createRng('dd')
     const b = createRng('dd')
     for (let i = 0; i < 200; i++) expect(depthQuotes(mm, lastAtInitial(), a)).toEqual(depthQuotes(mm, lastAtInitial(), b))
+  })
+})
+
+describe('simPlayerOrders', () => {
+  const wallet = (cashCents: number, qty: number): SimWallet => ({ cashCents, shares: { ORBT: qty, CURA: qty, VOLT: qty } })
+  const allWallets = (w: SimWallet) => Object.fromEntries(SIM_PLAYERS.map((s) => [s.id, w]))
+  // Only ORBT moves; the other tickers sit flat at their round open.
+  const view = (last: number, prev: number, open: number): SimView => ({
+    last: { ...lastAtInitial(), ORBT: last },
+    prevLast: { ...lastAtInitial(), ORBT: prev },
+    open: { ...lastAtInitial(), ORBT: open },
+  })
+  // constRng(0): every sim acts, takes its first candidate ticker, lowest slip and size, and Cal's coin says buy.
+  const sides = (out: BotIntent[]) => Object.fromEntries(out.map((i) => [i.botId, `${i.ticker} ${i.side}`]))
+
+  it('stays in band, priced through last, sized to its own cash and shares, one order per sim', () => {
+    const rng = createRng('sim-bounds')
+    const bad: string[] = []
+    let n = 0
+    for (let b = 0; b < 5_000; b++) {
+      const v: SimView = { last: {} as Record<Ticker, number>, prevLast: {} as Record<Ticker, number>, open: {} as Record<Ticker, number> }
+      for (const t of TICKERS) {
+        v.last[t] = rng.int(100, 50_000)
+        v.prevLast[t] = Math.max(1, v.last[t] + rng.int(-50, 50))
+        v.open[t] = Math.max(1, v.last[t] + rng.int(-500, 500))
+      }
+      const wallets = Object.fromEntries(SIM_PLAYERS.map((s) => [s.id, wallet(rng.int(0, 2_000_000), rng.int(0, 60))]))
+      const out = simPlayerOrders(v, wallets, rng)
+      n += out.length
+      for (const s of SIM_PLAYERS) if (out.filter((i) => i.botId === s.id).length > 1) bad.push(`b${b} ${s.id}: >1 order`)
+      for (const i of out) {
+        const band = bandFor(v.last[i.ticker])
+        const w = wallets[i.botId]
+        const ok =
+          SIM_PLAYERS.some((s) => s.id === i.botId) &&
+          Number.isInteger(i.limitCents) &&
+          i.limitCents >= band.lo &&
+          i.limitCents <= band.hi &&
+          (i.side === 'buy' ? i.limitCents >= v.last[i.ticker] : i.limitCents <= v.last[i.ticker]) &&
+          Number.isInteger(i.qty) &&
+          i.qty >= 1 &&
+          i.qty <= 100 &&
+          (i.side === 'buy' ? i.qty * i.limitCents <= w.cashCents : i.qty <= w.shares[i.ticker])
+        if (!ok) bad.push(`b${b}: ${JSON.stringify(i)} last ${v.last[i.ticker]} wallet ${JSON.stringify(w)}`)
+      }
+    }
+    expect(bad).toEqual([])
+    expect(n).toBeGreaterThan(2_000)
+  })
+
+  it('each strategy picks its side from the public price move', () => {
+    const w = allWallets(wallet(START_CASH_CENTS, 1_000))
+    // Up one tick and 83 bps above the open.
+    expect(sides(simPlayerOrders(view(12_100, 12_000, 12_000), w, constRng(0)))).toEqual({
+      'bot:sim:max': 'ORBT buy',
+      'bot:sim:rita': 'ORBT sell',
+      'bot:sim:dan': 'ORBT sell',
+      'bot:sim:cal': 'ORBT buy',
+    })
+    // Down one tick and below the open.
+    expect(sides(simPlayerOrders(view(11_900, 12_000, 12_500), w, constRng(0)))).toEqual({
+      'bot:sim:max': 'ORBT sell',
+      'bot:sim:rita': 'ORBT buy',
+      'bot:sim:dan': 'ORBT buy',
+      'bot:sim:cal': 'ORBT buy',
+    })
+    // Nothing moved and everything is at its open: only Casual Cal trades.
+    expect(sides(simPlayerOrders(view(12_000, 12_000, 12_000), w, constRng(0)))).toEqual({ 'bot:sim:cal': 'ORBT buy' })
+  })
+
+  it('never sells shares it does not have or buys past its cash', () => {
+    const down = view(11_900, 12_000, 12_500)
+    // No shares: Max can't sell into the drop, so he sits out.
+    expect(sides(simPlayerOrders(down, allWallets(wallet(START_CASH_CENTS, 0)), constRng(0)))['bot:sim:max']).toBeUndefined()
+    // No cash and no shares: nobody trades.
+    expect(simPlayerOrders(down, allWallets(wallet(0, 0)), constRng(0))).toEqual([])
+    // A sim with no wallet sits out; a ticker with an invalid price is never picked.
+    expect(simPlayerOrders(down, {}, constRng(0))).toEqual([])
+    const broken = { ...down, last: { ...down.last, ORBT: Number.NaN } }
+    expect(simPlayerOrders(broken, allWallets(wallet(START_CASH_CENTS, 10)), constRng(0)).some((i) => i.ticker === 'ORBT')).toBe(false)
+  })
+
+  it('is deterministic for a seed', () => {
+    const w = allWallets(wallet(START_CASH_CENTS, 50))
+    const v = view(12_100, 12_000, 12_000)
+    const a = createRng('sd')
+    const b = createRng('sd')
+    for (let i = 0; i < 200; i++) expect(simPlayerOrders(v, w, a)).toEqual(simPlayerOrders(v, w, b))
   })
 })

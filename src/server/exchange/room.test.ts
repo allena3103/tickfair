@@ -144,7 +144,7 @@ describe('ExchangeRoom (DO integration)', () => {
     const fill = h.writes.find((w) => w.collection === 'fills')
     expect(fill).toMatchObject({ actor: 'trader-1', recordId: `${orderId}:1`, data: { userId: 'trader-1', ticker: 'ORBT' } })
     expect(h.writes.find((w) => w.collection === 'orders' && w.recordId === orderId)?.actor).toBe('trader-1')
-    const pf = h.writes.filter((w) => w.collection === 'portfolios').at(-1)!
+    const pf = h.writes.filter((w) => w.collection === 'portfolios' && w.data.userId === 'trader-1').at(-1)!
     expect(pf.actor).toBe('owner-id')
     expect((pf.data.holdings as Record<string, number>).ORBT).toBeGreaterThan(0)
     expect(h.writes.some((w) => w.collection === 'tape' && w.actor === 'owner-id')).toBe(true)

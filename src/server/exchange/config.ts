@@ -2,8 +2,8 @@
  * Runtime knobs. Only the two round durations can be overridden, and only by
  * env vars that are meant for local test and evaluation runs.
  */
-import { ROUND_BREAK_MS, ROUND_LIVE_MS, TICKERS, type Ticker } from '../../shared/contracts.js'
-import { MM_BOT_ID, NOISE_BOT_ID, depthBotId } from '../../engine/market/index.js'
+import { ROUND_BREAK_MS, ROUND_LIVE_MS, SIM_PLAYER_PREFIX, START_CASH_CENTS, TICKERS, type Ticker } from '../../shared/contracts.js'
+import { MM_BOT_ID, NOISE_BOT_ID, SIM_PLAYERS, depthBotId } from '../../engine/market/index.js'
 
 export interface Durations {
   liveMs: number
@@ -49,8 +49,10 @@ export const DEPTH_LEVELS = 10
 
 const DEPTH_BOT_IDS = TICKERS.map(depthBotId)
 
-export const BOT_IDS: readonly string[] = [MM_BOT_ID, NOISE_BOT_ID, ...DEPTH_BOT_IDS]
+export const BOT_IDS: readonly string[] = [MM_BOT_ID, NOISE_BOT_ID, ...DEPTH_BOT_IDS, ...SIM_PLAYERS.map((s) => s.id)]
 export const isBotId = (userId: string): boolean => userId.startsWith('bot:')
+/** Sim players are bots whose portfolios are published to the live leaderboard. */
+export const isSimPlayerId = (userId: string): boolean => userId.startsWith(SIM_PLAYER_PREFIX)
 
 const perTicker = (qty: number): Record<Ticker, number> =>
   Object.fromEntries(TICKERS.map((t) => [t, qty])) as Record<Ticker, number>
@@ -60,6 +62,7 @@ const perTicker = (qty: number): Record<Ticker, number> =>
  * (LESSONS 11). The maker quotes up to 200 shares a side per ticker per batch;
  * these stocks last a full round even if players lean on one side. A depth
  * bot posts at most 120 shares a side per batch and holds only its own ticker.
+ * Sim players start exactly like a human: START_CASH_CENTS and no shares.
  */
 export const BOT_SEED: Record<string, { cashCents: number; shares: Record<Ticker, number> }> = {
   [MM_BOT_ID]: { cashCents: 50_000_000_00, shares: perTicker(20_000) },
@@ -67,10 +70,12 @@ export const BOT_SEED: Record<string, { cashCents: number; shares: Record<Ticker
   ...Object.fromEntries(
     TICKERS.map((t) => [depthBotId(t), { cashCents: 50_000_000_00, shares: { ...perTicker(0), [t]: 20_000 } }]),
   ),
+  ...Object.fromEntries(SIM_PLAYERS.map((s) => [s.id, { cashCents: START_CASH_CENTS, shares: perTicker(0) }])),
 }
 
 export const BOT_NAMES: Record<string, string> = {
   [MM_BOT_ID]: 'Market maker',
   [NOISE_BOT_ID]: 'Noise trader',
   ...Object.fromEntries(DEPTH_BOT_IDS.map((id) => [id, 'Depth maker'])),
+  ...Object.fromEntries(SIM_PLAYERS.map((s) => [s.id, s.name])),
 }

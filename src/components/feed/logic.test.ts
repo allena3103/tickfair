@@ -50,6 +50,17 @@ describe('leaderboard ranking', () => {
     expect(rows.find((r) => r.userId === 'u4')?.pnlCents).toBe(9_000_000 + 400_000 - START_CASH_CENTS)
     expect(rows.some((r) => r.userId.startsWith('bot:'))).toBe(false)
   })
+
+  it('ranks sim players alongside humans and flags them as bots', () => {
+    const rows = rankPortfolios(
+      [pf('u1', 'Ana', START_CASH_CENTS), pf('bot:sim:max', 'Momentum Max', START_CASH_CENTS + 900), pf('bot:depth:ORBT', 'Depth maker', 99_000_000)],
+      last,
+    )
+    expect(rows.map((r) => [r.rank, r.displayName, r.isBot])).toEqual([
+      [1, 'Momentum Max', true],
+      [2, 'Ana', false],
+    ])
+  })
 })
 
 describe('tape rows', () => {

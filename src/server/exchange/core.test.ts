@@ -11,7 +11,7 @@ import {
   type TapeRecord,
 } from '../../shared/contracts'
 import { priceBand } from '../../engine/core'
-import { DEPTH_LEVELS_PER_SIDE, INITIAL_PRICES, MM_BOT_ID, NOISE_BOT_ID, createRng, depthBotId } from '../../engine/market'
+import { DEPTH_LEVELS_PER_SIDE, INITIAL_PRICES, MM_BOT_ID, NOISE_BOT_ID, SIM_PLAYERS, createRng, depthBotId } from '../../engine/market'
 import { IDLE_PAUSE_MS } from './config'
 import { ExchangeCore } from './core'
 import { flushMirror, pendingCount } from './mirror'
@@ -126,7 +126,8 @@ describe('intake', () => {
     expect(orders).toHaveLength(1)
     expect(orders[0].actor).toBe('userA') // written as the trader so 'own' reads work
     expect(orders[0].data).toMatchObject({ userId: 'userA', status: 'open', qty: 10, limitCents: 11_000, filledQty: 0 })
-    const pf = queued<PortfolioRecord>(sql, 'portfolios')
+    // Sim players' portfolios are queued too; this checks only the human's.
+    const pf = queued<PortfolioRecord>(sql, 'portfolios').filter((r) => r.data.userId === 'userA')
     expect(pf).toHaveLength(1)
     expect(pf[0].data).toMatchObject({ userId: 'userA', displayName: 'Name userA', cashCents: START_CASH_CENTS })
   })
@@ -165,6 +166,8 @@ describe('intake', () => {
     expect(place(core, T0, 'userA', ok)).toEqual({ ok: false, code: 'round_closed' })
     core.wake(T0)
     expect(place(core, T0, MM_BOT_ID, ok)).toEqual({ ok: false, code: 'forbidden' })
+    expect(place(core, T0, 'bot:sim:max', ok)).toEqual({ ok: false, code: 'forbidden' })
+    expect(core.cancelOrder(T0, { userId: 'bot:sim:max', orderId: 'o-x' })).toEqual({ ok: false, code: 'forbidden' })
     expect(core.placeOrder(T0, { params: ok })).toEqual({ ok: false, code: 'forbidden' })
     expect(core.placeOrder(T0, null)).toEqual({ ok: false, code: 'forbidden' })
     expect(core.placeOrder(T0, { userId: 'userA', params: 'x' })).toEqual({ ok: false, code: 'invalid_ticker' })
@@ -227,7 +230,7 @@ describe('batch', () => {
     expect(fills.every((f) => f.data.priceCents === tape.data.clearCents)).toBe(true)
     const a = loadAccount(sql, 'userA')!
     expect(a.holdings.ORBT.qty).toBe(o.filledQty)
-    const pf = queued<PortfolioRecord>(sql, 'portfolios')[0].data
+    const pf = queued<PortfolioRecord>(sql, 'portfolios').find((r) => r.data.userId === 'userA')!.data
     expect(pf.holdings.ORBT).toBe(o.filledQty)
     expect(pf.cashCents).toBe(a.cashCents + a.reservedCents)
 
@@ -358,6 +361,46 @@ describe('batch', () => {
     expect(errors).toEqual([])
     expect(restarted.meta()).toMatchObject({ phase: 'live', halted: 0 })
     for (const t of TICKERS) expect(loadAccount(sql, depthBotId(t))).not.toBeNull()
+  })
+
+  it('sim players trade within their funds and publish only their portfolios', () => {
+    const { core, sql, logs, errors } = setup()
+    core.wake(T0)
+    const roundId = core.meta()!.roundId
+    const seeded = totals(sql)
+    runBatches(core, 55)
+    expect(errors).toEqual([])
+    expect(logs.filter((l) => l.includes('bot intent skipped') && l.includes('bot:sim:'))).toEqual([])
+    expect(totals(sql)).toEqual(seeded)
+
+    const ids = SIM_PLAYERS.map((s) => s.id)
+    const traded = ids.filter((id) => {
+      const a = loadAccount(sql, id)!
+      return a.cashCents + a.reservedCents !== START_CASH_CENTS
+    })
+    expect(traded.length).toBeGreaterThanOrEqual(3)
+
+    const pf = queued<PortfolioRecord>(sql, 'portfolios')
+    for (const s of SIM_PLAYERS) {
+      const row = pf.find((r) => r.data.userId === s.id)
+      expect(row?.recordId).toBe(`${roundId}:${s.id}`)
+      expect(row?.data.displayName).toBe(s.name)
+      // The published portfolio matches the account after the last batch.
+      const a = loadAccount(sql, s.id)!
+      expect(row?.data.cashCents).toBe(a.cashCents + a.reservedCents)
+    }
+    const privateRows = [...queued<OrderRecord>(sql, 'orders'), ...queued<FillRecord>(sql, 'fills')]
+    expect(privateRows.filter((r) => r.data.userId.startsWith('bot:'))).toEqual([])
+  })
+
+  it('sim players never appear in round standings or as the winner', () => {
+    const { core, sql } = setup()
+    core.wake(T0)
+    runBatches(core, 30)
+    core.tick(T0 + LIVE_MS, false)
+    const done = queued<RoundRecord>(sql, 'rounds').find((r) => r.data.status === 'done')!.data
+    expect(done.standings.filter((s) => s.userId.startsWith('bot:'))).toEqual([])
+    expect(done.winnerId).toBe('')
   })
 
   it('does not clear early, and keeps the clock without drift', () => {

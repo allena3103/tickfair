@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react'
 import { Trophy } from 'lucide-react'
+import { Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import type { PortfolioRecord, Ticker } from '@/shared/contracts'
 import { Delta } from '@/theme/Delta'
@@ -39,18 +40,20 @@ export function Leaderboard({
   const top = rows.slice(0, limit)
   const mine = currentUserId ? rows.find((r) => r.userId === currentUserId) : undefined
   const pinned = mine && !top.includes(mine) ? mine : undefined
+  // Sim players keep the board moving, but the count and empty state are about real traders.
+  const humans = rows.filter((r) => !r.isBot).length
 
   return (
     <FeedPanel
       testId="leaderboard"
       title="Leaderboard"
-      meta={status === 'ready' && rows.length > 0 ? formatCount(rows.length, 'trader', 'traders') : undefined}
+      meta={status === 'ready' && humans > 0 ? formatCount(humans, 'trader', 'traders') : undefined}
       className={className}
     >
       {status === 'error' && <FeedError message={error || 'Could not load the leaderboard.'} />}
       {status === 'loading' ? (
         <FeedSkeleton rows={5} />
-      ) : rows.length === 0 ? (
+      ) : humans === 0 ? (
         status === 'ready' && (
           <FeedEmpty
             icon={<Trophy />}
@@ -58,7 +61,8 @@ export function Leaderboard({
             description="Place an order and you're on the board."
           />
         )
-      ) : (
+      ) : null}
+      {status !== 'loading' && rows.length > 0 && (
         <table className="w-full text-sm">
           <thead>
             <tr className="font-mono text-xs text-muted-foreground">
@@ -111,6 +115,11 @@ function Row({ row, isSelf }: { row: LeaderRow; isSelf: boolean }) {
         {isSelf && <span className="mr-1.5 inline-block h-3 w-0.5 bg-primary align-middle" aria-hidden />}
         {row.displayName}
         {isSelf && <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground">(you)</span>}
+        {row.isBot && (
+          <Badge variant="outline" size="sm" className="ml-1.5 align-middle font-mono" title="Simulated player">
+            BOT
+          </Badge>
+        )}
       </td>
       <td className="whitespace-nowrap py-1.5 text-right font-mono tabular-nums">{formatCents(row.equityCents, { whole: true })}</td>
       <td className="whitespace-nowrap px-3 py-1.5 text-right">

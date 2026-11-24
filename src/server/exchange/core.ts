@@ -47,8 +47,11 @@ import {
   initialFundamentals,
   marketMakerQuotes,
   noiseTraderOrders,
+  simPlayerOrders,
   stepFundamental,
+  SIM_PLAYERS,
   type BotIntent,
+  type SimWallet,
 } from '../../engine/market/index.js'
 import { COMPANIES } from '../news/companies.js'
 import {
@@ -60,6 +63,7 @@ import {
   SNAPSHOT_PRINTS,
   TICKER_MIRROR_EVERY,
   isBotId,
+  isSimPlayerId,
   type Durations,
 } from './config.js'
 import { InvariantError, checkAccounts, checkConservation } from './invariants.js'
@@ -377,7 +381,7 @@ export class ExchangeCore {
     })
     this.mirrorTickers(market)
     // Bots quote into batch 1 so the first batch already has liquidity.
-    this.quoteBots(1, this.mustMeta(), market)
+    this.quoteBots(1, this.mustMeta(), market, lastOf(market))
     this.d.log(`[exchange] round ${roundId} live until ${new Date(now + liveMs).toISOString()}`)
     return [{ type: 'ex.phase', roundId, phase: 'live', phaseEndsAt: now + liveMs }]
   }
@@ -387,6 +391,7 @@ export class ExchangeCore {
     const acct = emptyAccount(seed.cashCents)
     for (const t of TICKERS) acct.holdings[t].qty = seed.shares[t]
     insertAccount(this.sql, botId, roundId, BOT_NAMES[botId], acct)
+    if (isSimPlayerId(botId)) this.mirrorPortfolio(botId, roundId)
   }
 
   /** Cancel everything, mark to market, publish standings. Inside a transaction. */
@@ -487,9 +492,11 @@ export class ExchangeCore {
     const batchId = m.batchId
     const before = totals(this.sql)
     const market = loadMarket(this.sql)
+    const prevLast = lastOf(market)
     const bot = loadBotState(this.sql, MM_BOT_ID)
     const accounts = new Map<string, Account>()
     const humans = new Set<string>()
+    const sims = new Set<string>()
     const prints: Print[] = []
 
     for (const t of TICKERS) {
@@ -522,6 +529,8 @@ export class ExchangeCore {
               priceCents: f.priceCents, batchId, roundId: m.roundId,
             },
           })
+        } else if (isSimPlayerId(f.traderId)) {
+          sims.add(f.traderId)
         }
       }
 
@@ -545,9 +554,10 @@ export class ExchangeCore {
     if (nextBatchAt <= now) nextBatchAt = now + BATCH_MS
     writeMeta(this.sql, { batchId: next, nextBatchAt })
     // Bot quotes carry the NEW batch id, so they never get earlier-batch priority over players.
-    this.quoteBots(next, this.mustMeta(), market)
+    this.quoteBots(next, this.mustMeta(), market, prevLast)
 
-    for (const userId of humans) this.mirrorPortfolio(userId, m.roundId)
+    // Sim players are bots, but their portfolios feed the live leaderboard.
+    for (const userId of [...humans, ...sims]) this.mirrorPortfolio(userId, m.roundId)
     if (next % TICKER_MIRROR_EVERY === 0) this.mirrorTickers(market)
 
     checkAccounts(this.sql, new Set([...accounts.keys(), ...BOT_IDS]))
@@ -561,9 +571,11 @@ export class ExchangeCore {
 
   /**
    * Cancel the bots' old orders and submit fresh intents for `batchId`.
-   * A rejected intent is logged and skipped; it never stops the batch (LESSONS 15).
+   * `prevLast` is the last price before the batch that just cleared (sim
+   * players read the move). A rejected intent is logged and skipped; it never
+   * stops the batch (LESSONS 15).
    */
-  private quoteBots(batchId: number, m: Meta, market: Record<Ticker, MarketRow>): void {
+  private quoteBots(batchId: number, m: Meta, market: Record<Ticker, MarketRow>, prevLast: Record<Ticker, number>): void {
     for (const botId of BOT_IDS) {
       let acct = this.mustAccount(botId)
       for (const o of liveOrdersForUser(this.sql, botId)) {
@@ -600,6 +612,19 @@ export class ExchangeCore {
     const resting = mm.intents.filter(place)
     for (const intent of depthQuotes(resting, last, createRng(`${m.roundSecret}|depth|${batchId}`))) place(intent)
     for (const intent of noise) place(intent)
+
+    // Sim players see only public prices and their own free cash and shares.
+    const open = {} as Record<Ticker, number>
+    for (const t of TICKERS) open[t] = market[t].openCents
+    const wallets: Record<string, SimWallet> = {}
+    for (const sim of SIM_PLAYERS) {
+      const acct = this.mustAccount(sim.id)
+      const shares = {} as Record<Ticker, number>
+      for (const t of TICKERS) shares[t] = acct.holdings[t].qty - acct.holdings[t].reservedQty
+      wallets[sim.id] = { cashCents: acct.cashCents, shares }
+    }
+    const sims = simPlayerOrders({ last, prevLast, open }, wallets, createRng(`${m.roundSecret}|sim|${batchId}`))
+    for (const intent of sims) place(intent)
   }
 
   // -------------------------------------------------------------------------

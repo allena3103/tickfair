@@ -25,6 +25,12 @@ export const ROUND_BREAK_MS = 2 * 60_000
 export const PRICE_BAND_BPS = 1_000
 export const MAX_ORDERS_PER_BATCH = 10
 export const MAX_OPEN_ORDERS = 20
+/**
+ * Simulated players: server-side bots shown on the live leaderboard with a BOT
+ * tag. Like every `bot:` id they never place orders through player requests
+ * and never appear in round standings or as a round winner.
+ */
+export const SIM_PLAYER_PREFIX = 'bot:sim:'
 
 // ---------------------------------------------------------------------------
 // Server actions (client → worker)

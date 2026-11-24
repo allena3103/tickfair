@@ -1,5 +1,5 @@
 import { START_CASH_CENTS, TICKERS, type PortfolioRecord, type Ticker } from '@/shared/contracts'
-import { isBotId } from '../shell/tickers'
+import { isBotId, isSimPlayerId } from '../shell/tickers'
 
 export interface LeaderRow {
   rank: number
@@ -9,6 +9,8 @@ export interface LeaderRow {
   equityCents: number
   /** Equity minus the starting cash. */
   pnlCents: number
+  /** A sim player: shown with a BOT tag, never a round winner. */
+  isBot: boolean
 }
 
 /**
@@ -40,13 +42,14 @@ export function equityOf(p: Pick<PortfolioRecord, 'cashCents' | 'holdings'>, las
 }
 
 /**
- * Rank human traders by equity, highest first. Bots (`bot:` ids) are left
- * out. Equal equity shares a rank (1, 1, 3); ties list by name, then id, so
- * the order is stable across renders.
+ * Rank traders by equity, highest first. Sim players (`bot:sim:` ids) are
+ * ranked alongside humans and flagged `isBot`; every other bot is left out.
+ * Equal equity shares a rank (1, 1, 3); ties list by name, then id, so the
+ * order is stable across renders.
  */
 export function rankPortfolios(portfolios: PortfolioRecord[], last: Partial<Record<Ticker, number>>): LeaderRow[] {
   const rows = portfolios
-    .filter((p) => p && typeof p.userId === 'string' && !isBotId(p.userId))
+    .filter((p) => p && typeof p.userId === 'string' && (!isBotId(p.userId) || isSimPlayerId(p.userId)))
     .map((p) => {
       const equityCents = equityOf(p, last)
       return {
@@ -56,6 +59,7 @@ export function rankPortfolios(portfolios: PortfolioRecord[], last: Partial<Reco
         cashCents: Number(p.cashCents) || 0,
         equityCents,
         pnlCents: equityCents - START_CASH_CENTS,
+        isBot: isSimPlayerId(p.userId),
       }
     })
     .sort(

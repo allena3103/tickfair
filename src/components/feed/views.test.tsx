@@ -41,6 +41,25 @@ describe('Leaderboard', () => {
     expect(two).toContain('2 traders<')
   })
 
+  it('lists sim players with a BOT tag but keeps the count and empty state about humans', () => {
+    const pf = (userId: string, displayName: string) => ({
+      userId,
+      displayName,
+      roundId: 'r',
+      cashCents: START_CASH_CENTS,
+      holdings: { ORBT: 0, CURA: 0, VOLT: 0 },
+    })
+    const solo = html(<Leaderboard portfolios={[pf('bot:sim:max', 'Momentum Max')]} last={last} status="ready" />)
+    expect(solo).toContain('No traders this round yet')
+    expect(solo).toContain('data-user-id="bot:sim:max"')
+    expect(solo).toMatch(/Momentum Max.*>BOT</)
+    const mixed = html(<Leaderboard portfolios={[pf('u1', 'Ana'), pf('bot:sim:max', 'Momentum Max')]} last={last} status="ready" />)
+    expect(mixed).toContain('1 trader<')
+    expect(mixed).not.toContain('No traders this round yet')
+    expect(mixed.match(/data-testid="leaderboard-row"/g)).toHaveLength(2)
+    expect(mixed).not.toMatch(/Ana[^<]*<[^>]*>BOT</)
+  })
+
   it('highlights the current user and pins them when outside the top N', () => {
     const portfolios = ['a', 'b', 'c'].map((id, i) => ({
       userId: id,

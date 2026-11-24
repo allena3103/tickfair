@@ -1,4 +1,4 @@
-import type { Ticker } from '@/shared/contracts'
+import { SIM_PLAYER_PREFIX, type Ticker } from '@/shared/contracts'
 
 /**
  * Display names for the three fictional tickers. The `tickers` collection
@@ -14,4 +14,9 @@ export const TICKER_INFO: Record<Ticker, { name: string; sector: string }> = {
 /** Bots trade through the same rules but never appear in standings. */
 export function isBotId(userId: string): boolean {
   return userId.startsWith('bot:')
+}
+
+/** Sim players are the only bots shown on the live leaderboard, with a BOT tag. */
+export function isSimPlayerId(userId: string): boolean {
+  return userId.startsWith(SIM_PLAYER_PREFIX)
 }
