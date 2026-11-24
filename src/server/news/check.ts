@@ -55,7 +55,9 @@ export function judge(draw: NewsDraw, data: unknown): CheckResult {
   const probs = answers?.tone?.probabilities as Record<string, unknown> | undefined
   const want = draw.direction === 1 ? 'good' : 'bad'
   const tone = num(probs?.[want])
-  if (about === null || real === null || tone === null) return { ok: false, reason: 'check_error', detail: 'unrecognized answer shape' }
+  if (about === null || real === null || tone === null) {
+    return { ok: false, reason: 'check_error', detail: `unrecognized answer shape: ${String(JSON.stringify(data)).slice(0, 120)}` }
+  }
   const detail = `about=${about} tone=${tone} real=${real}`
   if (about < MIN_ABOUT_COMPANY) return { ok: false, reason: 'check_off_topic', detail }
   if (answers?.tone?.choice !== want || tone < MIN_TONE) return { ok: false, reason: 'check_wrong_tone', detail }

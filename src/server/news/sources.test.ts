@@ -74,6 +74,9 @@ describe('NewsAPI inspiration', () => {
     expect(cleanTitle('x'.repeat(300))).toHaveLength(120)
     expect(cleanTitle('Gulf deal talks resume - Al-Monitor', 'Al-Monitor')).toBe('Gulf deal talks resume')
     expect(cleanTitle('Merger - what it means - Yahoo Finance - Canada', 'Yahoo Finance - Canada')).toBe('Merger - what it means')
+    expect(cleanTitle('Gulf deal talks resume - Al-Monitor')).toBe('Gulf deal talks resume')
+    expect(cleanTitle('Hidden\u202e text\u200b here\ufeff - X')).toBe('Hidden text here')
+    expect(cleanTitle(`${'a'.repeat(119)} bcd`)).toBe('a'.repeat(119))
     expect(cleanTitle(42)).toBe('')
   })
 
@@ -81,7 +84,8 @@ describe('NewsAPI inspiration', () => {
     const data = { articles: [article('A - S'), article('A - T'), article('[Removed]'), article(null), article('B - S'), article('C - S'), article('D - S')] }
     expect(pickTitles(data)).toEqual(['A', 'B', 'C'])
     expect(pickTitles({ data })).toEqual(['A', 'B', 'C'])
-    expect(pickTitles({ headlines: [] })).toEqual([])
+    expect(pickTitles({ articles: [] })).toEqual([])
+    expect(pickTitles({ headlines: [] })).toBeNull()
   })
 
   it('fetches the sector category once per ticker per hour', async () => {
@@ -113,5 +117,15 @@ describe('NewsAPI inspiration', () => {
     expect(await get('ORBT')).toEqual([])
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(logs).toEqual(['[news] inspiration unavailable: rate limited'])
+  })
+
+  it('logs an unrecognized response and caches no inspiration', async () => {
+    const logs: string[] = []
+    const invoke = vi.fn(async () => ({ status: 'error', code: 'apiKeyInvalid' }))
+    const get = makeInspiration(invoke, new Map(), () => 0, (l) => logs.push(l))
+    expect(await get('ORBT')).toEqual([])
+    expect(await get('ORBT')).toEqual([])
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(logs).toEqual(['[news] inspiration unavailable: unrecognized response shape'])
   })
 })

@@ -24,25 +24,33 @@ export type Inspiration = (ticker: Ticker) => Promise<string[]>
 
 /**
  * Article titles end in " - Source"; drop it (exactly, when the source name is
- * known), then strip anything that could break out of the prompt line
- * (newlines, control characters, quotes).
+ * known, else from the last " - "), then strip anything that could break out
+ * of the prompt line or hide text: control, zero-width, and bidi characters,
+ * and quotes.
  */
 export function cleanTitle(title: unknown, source?: unknown): string {
   if (typeof title !== 'string') return ''
   const suffix = typeof source === 'string' && source ? ` - ${source}` : ''
-  const noSource = suffix && title.endsWith(suffix) ? title.slice(0, -suffix.length) : title.replace(/\s+-\s+[^-]+$/, '')
-  return noSource
-    .replace(/[\u0000-\u001f\u007f"`]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const noSource = suffix && title.endsWith(suffix) ? title.slice(0, -suffix.length) : title.replace(/\s+-\s+(?:(?!\s+-\s+).)+$/, '')
+  return Array.from(
+    noSource
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff"`]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  )
     .slice(0, INSPIRATION_MAX_CHARS)
+    .join('')
+    .trim()
 }
 
-/** Reads `{ articles: [...] }`, also when wrapped in a `data` envelope. */
-export function pickTitles(data: unknown): string[] {
+/**
+ * Reads `{ articles: [...] }`, also when wrapped in a `data` envelope.
+ * Returns null when there is no `articles` array, so the caller can log it.
+ */
+export function pickTitles(data: unknown): string[] | null {
   const root = data as { articles?: unknown; data?: { articles?: unknown } } | null
   const articles = root?.articles ?? root?.data?.articles
-  if (!Array.isArray(articles)) return []
+  if (!Array.isArray(articles)) return null
   const out: string[] = []
   for (const a of articles) {
     const article = a as { title?: unknown; source?: { name?: unknown } } | null
@@ -57,8 +65,8 @@ export type InspirationCache = Map<Ticker, { at: number; titles: string[] }>
 
 /**
  * Caches per ticker for `INSPIRATION_TTL_MS`, including empty results, so a
- * NewsAPI outage costs at most one failed call per ticker per hour. Pass a
- * long-lived cache; each news event builds a new `invoke`.
+ * NewsAPI outage costs at most one failed call per ticker per hour in each
+ * isolate. Pass a long-lived cache; each news event builds a new `invoke`.
  */
 export function makeInspiration(
   invoke: IntegrationInvoke,
@@ -71,7 +79,9 @@ export function makeInspiration(
     if (hit && now() - hit.at < INSPIRATION_TTL_MS) return hit.titles
     let titles: string[] = []
     try {
-      titles = pickTitles(await invoke(INSPIRATION_ENDPOINT, { country: 'us', category: SECTOR_CATEGORY[ticker], pageSize: 10 }))
+      const picked = pickTitles(await invoke(INSPIRATION_ENDPOINT, { country: 'us', category: SECTOR_CATEGORY[ticker], pageSize: 10 }))
+      if (picked) titles = picked
+      else log('[news] inspiration unavailable: unrecognized response shape')
     } catch (err) {
       log(`[news] inspiration unavailable: ${err instanceof Error ? err.message.slice(0, 200) : 'unknown'}`)
     }
