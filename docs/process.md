@@ -22,6 +22,15 @@ Every prompt, word for word: [PROMPTS.md](../PROMPTS.md).
 
 Worker reports: [orchestrations/files/reports/](../orchestrations/files/reports/). Build log: [PROGRESS.md](../orchestrations/files/PROGRESS.md). Lessons: [LESSONS.md](../orchestrations/files/LESSONS.md).
 
+## After the main build
+
+Later features went through a lighter version of the same loop. The main agent built each on its own branch, reran the checks itself, and gave a fresh reviewer only the plan, acceptance criteria, and diff (at most 3 rounds). Each merged only after I approved the results.
+
+- **Depth bots** layer orders behind the market maker so the book looks deep. Three review rounds caught a deploy-mid-round halt and a lone-depth edge case.
+- **Four sim players** make the market look active for a single visitor. I chose labeled, server-side players over a script on my own machine, which would only run while my computer did.
+- **"How it works" modal** on the order ticket, instead of a link that left the trading page.
+- **NewsAPI and Jev** in the news pipeline, after I checked the submission guidelines against the build. Three review rounds; then a live check showed checked headlines publishing in production.
+
 ## What I caught or decided myself
 
 - A builder found that the template's browser integration route let any signed-in user spend my AI credits. I had it closed for every owner-billed service, not just Claude.

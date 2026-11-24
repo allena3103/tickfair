@@ -22,7 +22,7 @@ flowchart LR
   X -- "live book and trades" --> B
   X -- "orders, fills, portfolios, trades, rounds" --> R[Record store<br/>permission-filtered]
   R -- "live queries" --> B
-  C[Scheduled job: news] -- "Claude writes the headline" --> R
+  C[Scheduled job: news] -- "NewsAPI inspires, Claude writes, Jev checks" --> R
   C -- "price shock" --> X
 ```
 
