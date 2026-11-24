@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ExchangeShockRequest, NewsDraw, NewsRecord } from '../../shared/contracts.js'
 import type { Env } from '../../../worker.js'
 import { buildPrompt, generateNews } from './generate.js'
+import type { LlmRequest } from './generate.js'
 import { extractText, makeCallLLM, NEWS_ENDPOINT, NEWS_MAX_TOKENS, NEWS_MODEL } from './llm.js'
 import { publishNews } from './publish.js'
 import type { PublishDeps } from './publish.js'
@@ -92,8 +93,10 @@ describe('buildPrompt', () => {
 })
 
 describe('generateNews', () => {
+  const pass = { inspiration: async () => [], checkNews: async () => ({ ok: true as const }) }
+
   it('returns a NewsItem for a valid reply', async () => {
-    const r = await generateNews(UP, { callLLM: async () => GOOD, now: () => 1234 })
+    const r = await generateNews(UP, { ...pass, callLLM: async () => GOOD, now: () => 1234 })
     expect(r).toEqual({
       ok: true,
       item: {
@@ -106,8 +109,29 @@ describe('generateNews', () => {
   })
 
   it('maps a thrown LLM call to llm_error', async () => {
-    const r = await generateNews(UP, { callLLM: async () => { throw new Error('insufficient_credits') }, now: () => 0 })
+    const r = await generateNews(UP, { ...pass, callLLM: async () => { throw new Error('insufficient_credits') }, now: () => 0 })
     expect(r).toMatchObject({ ok: false, reason: 'llm_error' })
+  })
+
+  it("puts the ticker's inspiration headlines into the prompt", async () => {
+    const inspiration = vi.fn(async () => ['Chipmaker ramps output'])
+    const callLLM = vi.fn(async (_req: LlmRequest) => GOOD)
+    await generateNews(UP, { ...pass, inspiration, callLLM, now: () => 0 })
+    expect(inspiration).toHaveBeenCalledWith('ORBT')
+    expect(callLLM.mock.calls[0][0].user).toContain('- "Chipmaker ramps output"')
+  })
+
+  it('skips with the check reason when the Jev check fails', async () => {
+    const checkNews = vi.fn(async () => ({ ok: false as const, reason: 'check_real_entity' as const }))
+    const r = await generateNews(UP, { ...pass, checkNews, callLLM: async () => GOOD, now: () => 0 })
+    expect(r).toEqual({ ok: false, reason: 'check_real_entity' })
+    expect(checkNews).toHaveBeenCalledWith(UP, expect.objectContaining({ headline: 'Orbital Compute lands record GPU cluster contract' }))
+  })
+
+  it('does not run the Jev check on a reply that failed validation', async () => {
+    const checkNews = vi.fn(async () => ({ ok: true as const }))
+    expect(await generateNews(UP, { ...pass, checkNews, callLLM: async () => 'not json', now: () => 0 })).toMatchObject({ ok: false, reason: 'invalid_json' })
+    expect(checkNews).not.toHaveBeenCalled()
   })
 })
 
@@ -143,6 +167,8 @@ function publishDeps(llmReply: string | Error, overrides: Partial<PublishDeps> =
   const logs: string[] = []
   const deps: PublishDeps = {
     roundId: 'r1',
+    inspiration: async () => [],
+    checkNews: async () => ({ ok: true as const }),
     callLLM: async () => {
       if (llmReply instanceof Error) throw llmReply
       return llmReply
@@ -192,6 +218,14 @@ describe('publishNews', () => {
     expect(deps.shock).not.toHaveBeenCalled()
     expect(deps.writeNews).not.toHaveBeenCalled()
     expect(logs[0]).toMatch(/^\[news\] skipped /)
+  })
+
+  it('never writes or shocks when the Jev check fails', async () => {
+    const { deps, logs } = publishDeps(GOOD, { checkNews: async () => ({ ok: false, reason: 'check_error', detail: 'timeout' }) })
+    expect(await publishNews(UP, deps)).toEqual({ status: 'skipped', reason: 'check_error' })
+    expect(deps.writeNews).not.toHaveBeenCalled()
+    expect(deps.shock).not.toHaveBeenCalled()
+    expect(logs[0]).toBe('[news] skipped check_error: timeout')
   })
 
   it('does not shock when the record write fails', async () => {

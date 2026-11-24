@@ -25,7 +25,11 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
-  // News generation (cron + owner-only breakingNews). Owner-billed, so the
-  // browser proxy refuses it (src/server/http-routes.ts); server code only.
+  // News pipeline (cron + owner-only breakingNews): anthropic writes the item,
+  // newsapi supplies real sector headlines as style inspiration, cloudflare
+  // (Jev) checks the result. Owner-billed, so the browser proxy refuses them
+  // (src/server/http-routes.ts); server code only.
   anthropic: { billing: 'developer' },
+  newsapi: { billing: 'developer' },
+  cloudflare: { billing: 'developer' },
 }

@@ -39,4 +39,4 @@ All of them go through the same order intake and rules as players (`src/engine/m
 
 ## News
 
-A scheduled job (`src/cron.ts`, `src/server/news/`) picks the stock, direction, and size of each price move. Claude only writes the headline. The headline is published before the price starts moving, and if the AI reply fails validation, there is no price move.
+A scheduled job (`src/cron.ts`, `src/server/news/`) picks the stock, direction, and size of each price move. Claude only writes the headline, using real sector headlines as style inspiration. The headline must pass our validation and then an independent AI check, or there is no price move. It is published before the price starts moving. Which integration does what: [deepspace.md](deepspace.md#integrations-three-all-in-the-news-pipeline).

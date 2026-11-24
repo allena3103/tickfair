@@ -5,6 +5,9 @@
 
 import type { ExchangeShockRequest, ExchangeShockResponse, NewsDraw, NewsRecord, RoundRecord } from '../../shared/contracts.js'
 import type { Env } from '../../../worker.js'
+import { makeCheckNews } from './check.js'
+import { makeInspiration } from './inspiration.js'
+import type { InspirationCache } from './inspiration.js'
 import { makeCallLLM } from './llm.js'
 import type { IntegrationInvoke } from './llm.js'
 import { publishNews } from './publish.js'
@@ -86,6 +89,9 @@ export function paidNewsAllowed(env: Pick<Env, 'ALLOW_DEBUG_ROUTES' | 'NEWS_LLM_
   return env.ALLOW_DEBUG_ROUTES !== 'true' || env.NEWS_LLM_IN_DEV === 'true'
 }
 
+/** One cache per isolate, kept across news events. */
+const inspirationCache: InspirationCache = new Map()
+
 /**
  * Runs one news event end to end. Checks for a live round first so no paid
  * call is made between rounds, and makes no paid call on a dev/test server
@@ -101,13 +107,16 @@ export async function runNewsEvent(env: Env, draw: NewsDraw, invoke: Integration
     console.log('[news] skipped llm_disabled_in_dev')
     return { status: 'skipped', reason: 'llm_disabled_in_dev' }
   }
+  const log = (line: string) => console.log(line)
   return publishNews(draw, {
     roundId,
     callLLM: makeCallLLM(invoke),
+    inspiration: makeInspiration(invoke, inspirationCache, Date.now, log),
+    checkNews: makeCheckNews(invoke),
     now: Date.now,
     newId: () => `news_${crypto.randomUUID()}`,
     writeNews: (id, record) => writeNews(env, id, record),
     shock: (req) => sendShock(env, req),
-    log: (line) => console.log(line),
+    log,
   })
 }

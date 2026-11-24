@@ -12,13 +12,17 @@
 | Presence | Who's online and which stock each trader is watching |
 | `deepspace/testing` | Multi-user browser tests with three test accounts |
 
-## Integrations: one, on purpose
+## Integrations: three, all in the news pipeline
+
+News is the only place outside data enters the game, and a misleading headline is the main way news could be unfair. Each integration makes headlines more realistic or more trustworthy. All three are billed to the owner and run only on the server, so players can't spend the owner's credits.
 
 | Integration | Used for |
 |---|---|
-| `anthropic/chat-completion` (Claude Haiku) | Writing news headlines. Billed to the owner and run only on the server, so players can't spend the owner's credits. |
+| `anthropic/chat-completion` (Claude Haiku) | Writing the fictional headline and body for the stock, direction, and size the engine already picked. |
+| `newsapi/top-headlines` | Real headlines from the stock's sector (tech, health, business), passed to Claude as style inspiration only. Cached for an hour per stock; if NewsAPI fails, the headline is written without it. |
+| `cloudflare/jev` | An independent AI check after our own validation: is the item about the right company, does its tone match the price move, and does it name anything real? Any failure, including a Jev error, drops the event with no price move. |
 
-Every other candidate either fought the design or added cost without making trading better:
+The rest either fought the design or added cost without making trading better:
 
 - Payments: the money is fake by design.
 - Real stock quotes: they would fight the news engine.
