@@ -32,7 +32,7 @@ export function buildCheckRequest(draw: NewsDraw, news: ValidNews): Record<strin
       },
       tone: {
         type: 'choice',
-        instructions: "For that company's investors, is this news item good, bad, or neither?",
+        instructions: 'For investors in the fictional company named in fictional_company, is this news item good, bad, or neutral?',
         criteria: { good: null, bad: null, neutral: null },
       },
       real_entities: {
@@ -56,9 +56,10 @@ export function judge(draw: NewsDraw, data: unknown): CheckResult {
   const want = draw.direction === 1 ? 'good' : 'bad'
   const tone = num(probs?.[want])
   if (about === null || real === null || tone === null) return { ok: false, reason: 'check_error', detail: 'unrecognized answer shape' }
-  if (about < MIN_ABOUT_COMPANY) return { ok: false, reason: 'check_off_topic' }
-  if (answers?.tone?.choice !== want || tone < MIN_TONE) return { ok: false, reason: 'check_wrong_tone' }
-  if (real > MAX_REAL_ENTITY) return { ok: false, reason: 'check_real_entity' }
+  const detail = `about=${about} tone=${tone} real=${real}`
+  if (about < MIN_ABOUT_COMPANY) return { ok: false, reason: 'check_off_topic', detail }
+  if (answers?.tone?.choice !== want || tone < MIN_TONE) return { ok: false, reason: 'check_wrong_tone', detail }
+  if (real > MAX_REAL_ENTITY) return { ok: false, reason: 'check_real_entity', detail }
   return { ok: true }
 }
 

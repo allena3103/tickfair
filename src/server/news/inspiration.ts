@@ -23,12 +23,14 @@ export const INSPIRATION_TTL_MS = 60 * 60_000
 export type Inspiration = (ticker: Ticker) => Promise<string[]>
 
 /**
- * Article titles end in " - Source"; drop that, then strip anything that could
- * break out of the prompt line (newlines, control characters, quotes).
+ * Article titles end in " - Source"; drop it (exactly, when the source name is
+ * known), then strip anything that could break out of the prompt line
+ * (newlines, control characters, quotes).
  */
-export function cleanTitle(title: unknown): string {
+export function cleanTitle(title: unknown, source?: unknown): string {
   if (typeof title !== 'string') return ''
-  const noSource = title.replace(/\s+-\s+[^-]+$/, '')
+  const suffix = typeof source === 'string' && source ? ` - ${source}` : ''
+  const noSource = suffix && title.endsWith(suffix) ? title.slice(0, -suffix.length) : title.replace(/\s+-\s+[^-]+$/, '')
   return noSource
     .replace(/[\u0000-\u001f\u007f"`]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -43,7 +45,8 @@ export function pickTitles(data: unknown): string[] {
   if (!Array.isArray(articles)) return []
   const out: string[] = []
   for (const a of articles) {
-    const t = cleanTitle((a as { title?: unknown } | null)?.title)
+    const article = a as { title?: unknown; source?: { name?: unknown } } | null
+    const t = cleanTitle(article?.title, article?.source?.name)
     if (t && !t.includes('[Removed]') && !out.includes(t)) out.push(t)
     if (out.length === INSPIRATION_COUNT) break
   }
