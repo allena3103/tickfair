@@ -611,16 +611,23 @@ test.describe('trade terminal (signed in)', () => {
     for (const [name, n] of Object.entries(mine)) expect(n, name).toBeLessThanOrEqual(1)
   })
 
-  test('the fairness note links to the batch auction explanation', async ({ users }) => {
+  test('the fairness note opens the batch auction explanation in a modal, without leaving /trade', async ({ users }) => {
     const [a] = await users(1)
     const page = a.page
     await page.goto('/trade')
-    const link = page.getByTestId('fairness-hint').getByRole('link', { name: 'How it works' })
-    await expect(link).toBeVisible({ timeout: 20_000 })
-    await link.click()
-    await expect(page).toHaveURL(/\/#how-it-works$/)
-    const section = page.locator('#how-it-works')
-    await expect(section.getByRole('heading', { name: 'How a batch auction works' })).toBeVisible({ timeout: 15_000 })
-    await expect(section).toBeInViewport()
+    const qty = page.getByLabel('Shares')
+    await expect(qty).toBeVisible({ timeout: 20_000 })
+    await qty.fill('37')
+    const button = page.getByTestId('fairness-hint').getByRole('button', { name: 'How it works' })
+    await button.click()
+    const dialog = page.getByRole('dialog', { name: 'How a batch auction works' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Collect')).toBeVisible()
+    await expect(page).toHaveURL(/\/trade$/)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    // Closing it leaves the ticket as it was, and no order was sent.
+    await expect(qty).toHaveValue('37')
+    await expect(page.getByTestId('ticket-ok')).toHaveCount(0)
   })
 })

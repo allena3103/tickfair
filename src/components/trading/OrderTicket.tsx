@@ -6,8 +6,9 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Info } from 'lucide-react'
+import { BatchAuctionSteps, ClearingDiagram } from '@/components/BatchAuctionExplainer'
+import { Modal } from '@/components/ui/Modal'
 import { priceBand } from '@/engine/core'
 import type { OrderType, Side, Ticker } from '@/shared/contracts'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
   const [qtyText, setQtyText] = useState('10')
   const [priceText, setPriceText] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [howOpen, setHowOpen] = useState(false)
   // Balances as of the latest render, read when a response arrives (not the
   // values captured when the order was sent), so a reject is judged against
   // the balances it is shown next to.
@@ -210,12 +212,26 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             Orders in the same 1-second batch are treated as simultaneous.{' '}
-            <Link to="/#how-it-works" className="text-foreground underline underline-offset-2 hover:text-primary">
+            {/* type="button": inside the order form, a plain button would submit the order. */}
+            <button
+              type="button"
+              onClick={() => setHowOpen(true)}
+              className="text-foreground underline underline-offset-2 hover:text-primary"
+            >
               How it works
-            </Link>
+            </button>
           </span>
         </p>
       </form>
+      <Modal open={howOpen} onClose={() => setHowOpen(false)} size="xl" data-testid="how-it-works-modal">
+        <Modal.Header>
+          <Modal.Title>How a batch auction works</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="grid items-start gap-6 md:grid-cols-2">
+          <BatchAuctionSteps />
+          <ClearingDiagram />
+        </Modal.Body>
+      </Modal>
     </section>
   )
 }

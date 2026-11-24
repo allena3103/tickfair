@@ -43,6 +43,7 @@ import { TICKERS } from '../shared/contracts'
 import { TICKER_INFO } from '../components/shell/tickers'
 import { Delta } from '../theme/Delta'
 import { useScrollToHash } from '../components/shell/useScrollToHash'
+import { BatchAuctionSteps, ClearingDiagram } from '../components/BatchAuctionExplainer'
 
 export default function Landing() {
   // Hash links (/#how-it-works) from other routes and on direct load: the
@@ -201,69 +202,16 @@ function BatchSweep() {
 }
 
 function HowItWorks() {
-  const steps = [
-    { n: '01', title: 'Collect', body: 'Every order sent in the same second joins one batch.' },
-    { n: '02', title: 'Cross', body: 'The price that trades the most shares wins.' },
-    { n: '03', title: 'Settle', body: 'Everyone fills at that one price. Ties split pro rata.' },
-  ]
   return (
     <section id="how-it-works" className="scroll-mt-16 border-t border-border">
       <div className="mx-auto grid max-w-6xl gap-12 px-4 py-20 sm:px-6 lg:grid-cols-2">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight">How a batch auction works</h2>
-          <ol className="mt-8 border-l border-border">
-            {steps.map((s) => (
-              <li key={s.n} className="relative pb-8 pl-6 last:pb-0">
-                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />
-                <p className="font-mono text-xs text-muted-foreground">{s.n}</p>
-                <p className="mt-1 text-lg font-semibold">{s.title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
-              </li>
-            ))}
-          </ol>
+          <BatchAuctionSteps className="mt-8" />
         </div>
         <ClearingDiagram />
       </div>
     </section>
-  )
-}
-
-/** Static supply/demand cross: demand steps down, supply steps up, one price clears. */
-function ClearingDiagram() {
-  return (
-    <figure className="rounded-lg border border-border bg-card p-4">
-      <svg viewBox="0 0 320 220" role="img" aria-labelledby="clear-title" className="h-auto w-full font-mono">
-        <title id="clear-title">Buy orders step down, sell orders step up; they cross at the clearing price 42.10</title>
-        {/* axes */}
-        <path d="M40 16 V188 H308" className="fill-none stroke-border" strokeWidth="1" />
-        {/* demand: buyers willing at each price, stepping down */}
-        <path d="M40 40 H110 V80 H170 V120 H230 V160 H300" className="fill-none stroke-up" strokeWidth="2" />
-        {/* supply: sellers willing at each price, stepping up */}
-        <path d="M40 170 H100 V140 H160 V112 H220 V70 H300" className="fill-none stroke-down" strokeWidth="2" />
-        {/* clearing price */}
-        <path d="M40 112 H308" className="fill-none stroke-primary" strokeWidth="1" strokeDasharray="4 4" />
-        <circle cx="170" cy="112" r="4" className="fill-primary" />
-        <text x="48" y="104" className="fill-primary" fontSize="11">
-          clears 42.10
-        </text>
-        {/* each label sits just past the end of its own curve */}
-        <text x="240" y="152" className="fill-up" fontSize="10">
-          ▲ buyers
-        </text>
-        <text x="240" y="62" className="fill-down" fontSize="10">
-          ▼ sellers
-        </text>
-        <text x="4" y="20" className="fill-muted-foreground" fontSize="10">
-          price
-        </text>
-        <text x="250" y="204" className="fill-muted-foreground" fontSize="10">
-          shares
-        </text>
-      </svg>
-      <figcaption className="mt-2 text-xs text-muted-foreground">
-        Arrival order inside the second doesn&apos;t matter. The seed for every tie is published.
-      </figcaption>
-    </figure>
   )
 }
 
