@@ -48,6 +48,7 @@ import {
   marketMakerQuotes,
   noiseTraderOrders,
   stepFundamental,
+  type BotIntent,
 } from '../../engine/market/index.js'
 import { COMPANIES } from '../news/companies.js'
 import {
@@ -570,11 +571,9 @@ export class ExchangeCore {
     const state = loadBotState(this.sql, MM_BOT_ID)
     const mm = marketMakerQuotes(state, market, last, createRng(`${m.roundSecret}|mm|${batchId}`))
     const noise = noiseTraderOrders(last, createRng(`${m.roundSecret}|noise|${batchId}`))
-    // Depth rests behind this batch's maker quotes, so it needs them first.
-    const depth = depthQuotes(mm.intents, last, createRng(`${m.roundSecret}|depth|${batchId}`))
     saveBotState(this.sql, MM_BOT_ID, mm.state)
 
-    for (const intent of [...mm.intents, ...depth, ...noise]) {
+    const place = (intent: BotIntent): boolean => {
       const { lo, hi } = priceBand(last[intent.ticker])
       const limitCents = Math.min(hi, Math.max(lo, intent.limitCents))
       const res = this.submit(
@@ -585,7 +584,13 @@ export class ExchangeCore {
         market,
       )
       if (!res.ok) this.d.log(`[exchange] bot intent skipped ${intent.botId} ${intent.ticker} ${intent.side} ${intent.qty}@${limitCents}: ${res.code}`)
+      return res.ok
     }
+    // Depth anchors only on maker quotes that actually rested, so a rejected
+    // maker side never leaves depth alone at the front of the book.
+    const resting = mm.intents.filter(place)
+    for (const intent of depthQuotes(resting, last, createRng(`${m.roundSecret}|depth|${batchId}`))) place(intent)
+    for (const intent of noise) place(intent)
   }
 
   // -------------------------------------------------------------------------

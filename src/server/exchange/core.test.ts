@@ -320,6 +320,22 @@ describe('batch', () => {
     expect(totals(sql)).toEqual(totalsAtStart)
   })
 
+  it('puts no depth on a side where the maker quote was rejected', () => {
+    const { core, sql } = setup()
+    core.wake(T0)
+    // Leave the maker 10 VOLT and no live VOLT sell, so next batch its ask (≥50) is rejected.
+    sql.exec(`UPDATE book SET status = 'cancelled', remaining = 0 WHERE userId = ? AND ticker = 'VOLT' AND side = 'sell'`, MM_BOT_ID)
+    sql.exec(`UPDATE holdings SET qty = 10, reservedQty = 0 WHERE userId = ? AND ticker = 'VOLT'`, MM_BOT_ID)
+    runBatches(core, 1)
+    const voltOrders = rows<{ userId: string; side: string }>(
+      sql,
+      `SELECT userId, side FROM book WHERE ticker = 'VOLT' AND status IN ('open', 'partial')`,
+    )
+    expect(voltOrders.filter((o) => o.userId === MM_BOT_ID && o.side === 'sell')).toEqual([])
+    expect(voltOrders.filter((o) => o.userId === depthBotId('VOLT') && o.side === 'sell')).toEqual([])
+    expect(voltOrders.filter((o) => o.userId === depthBotId('VOLT') && o.side === 'buy').length).toBeGreaterThan(0)
+  })
+
   it('does not clear early, and keeps the clock without drift', () => {
     const { core } = setup()
     core.wake(T0)
