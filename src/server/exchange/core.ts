@@ -123,6 +123,13 @@ export class ExchangeCore {
   constructor(private readonly d: CoreDeps) {
     this.sql = d.sql
     createTables(d.sql)
+    // A deploy can add bots while a round is live; seed them now, or the next
+    // batch would fail on a missing account and halt the round.
+    d.txn(() => {
+      const m = readMeta(this.sql)
+      if (m?.phase !== 'live') return
+      for (const botId of BOT_IDS) if (!loadAccount(this.sql, botId)) this.seedBot(botId, m.roundId)
+    })
   }
 
   meta(): Meta | null {
@@ -349,12 +356,7 @@ export class ExchangeCore {
     }
     saveMarket(this.sql, market)
     saveBotState(this.sql, MM_BOT_ID, initialBotState())
-    for (const botId of BOT_IDS) {
-      const seed = BOT_SEED[botId]
-      const acct = emptyAccount(seed.cashCents)
-      for (const t of TICKERS) acct.holdings[t].qty = seed.shares[t]
-      insertAccount(this.sql, botId, roundId, BOT_NAMES[botId], acct)
-    }
+    for (const botId of BOT_IDS) this.seedBot(botId, roundId)
 
     const { liveMs } = this.d.durations
     writeMeta(this.sql, {
@@ -378,6 +380,13 @@ export class ExchangeCore {
     this.quoteBots(1, this.mustMeta(), market)
     this.d.log(`[exchange] round ${roundId} live until ${new Date(now + liveMs).toISOString()}`)
     return [{ type: 'ex.phase', roundId, phase: 'live', phaseEndsAt: now + liveMs }]
+  }
+
+  private seedBot(botId: string, roundId: string): void {
+    const seed = BOT_SEED[botId]
+    const acct = emptyAccount(seed.cashCents)
+    for (const t of TICKERS) acct.holdings[t].qty = seed.shares[t]
+    insertAccount(this.sql, botId, roundId, BOT_NAMES[botId], acct)
   }
 
   /** Cancel everything, mark to market, publish standings. Inside a transaction. */

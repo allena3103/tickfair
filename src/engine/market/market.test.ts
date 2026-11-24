@@ -442,12 +442,11 @@ describe('depthQuotes', () => {
     expect(out).toHaveLength(DEPTH_LEVELS_PER_SIDE)
   })
 
-  it('drops levels that would leave the band instead of stacking them on the edge', () => {
+  it('keeps in-band levels and drops the rest instead of stacking them on the edge', () => {
     const lo = bandFor(12_000).lo
-    const mm: BotIntent[] = [{ botId: 'bot:mm', ticker: 'ORBT', side: 'buy', qty: 100, limitCents: lo + 1 }]
-    const out = depthQuotes(mm, lastAtInitial(), createRng('edge-drop'))
-    expect(out.length).toBeLessThan(DEPTH_LEVELS_PER_SIDE)
-    expect(out.every((d) => d.limitCents >= lo)).toBe(true)
+    // constRng draws the low end: 5 bps of 120.00 = 6-cent steps.
+    const mm: BotIntent[] = [{ botId: 'bot:mm', ticker: 'ORBT', side: 'buy', qty: 100, limitCents: lo + 12 }]
+    expect(depthQuotes(mm, lastAtInitial(), constRng(0)).map((d) => d.limitCents)).toEqual([lo + 6, lo])
   })
 
   it('ignores quotes from other bots and skips a ticker with no valid last price', () => {

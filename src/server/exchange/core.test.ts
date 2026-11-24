@@ -336,6 +336,22 @@ describe('batch', () => {
     expect(voltOrders.filter((o) => o.userId === depthBotId('VOLT') && o.side === 'buy').length).toBeGreaterThan(0)
   })
 
+  it('seeds bots added by a deploy while a round is live, so the round keeps running', () => {
+    const { core, sql, txn, errors } = setup()
+    core.wake(T0)
+    // The live round was opened by code that had no depth bots.
+    for (const t of TICKERS) {
+      sql.exec(`DELETE FROM book WHERE userId = ?`, depthBotId(t))
+      sql.exec(`DELETE FROM holdings WHERE userId = ?`, depthBotId(t))
+      sql.exec(`DELETE FROM accounts WHERE userId = ?`, depthBotId(t))
+    }
+    const restarted = new ExchangeCore({ sql, txn, durations: { liveMs: LIVE_MS, breakMs: BREAK_MS }, newId: () => crypto.randomUUID(), log: () => {}, logError: (l) => errors.push(l) })
+    runBatches(restarted, 2)
+    expect(errors).toEqual([])
+    expect(restarted.meta()).toMatchObject({ phase: 'live', halted: 0 })
+    for (const t of TICKERS) expect(loadAccount(sql, depthBotId(t))).not.toBeNull()
+  })
+
   it('does not clear early, and keeps the clock without drift', () => {
     const { core } = setup()
     core.wake(T0)
