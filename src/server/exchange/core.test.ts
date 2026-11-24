@@ -323,8 +323,16 @@ describe('batch', () => {
   it('puts no depth on a side where the maker quote was rejected', () => {
     const { core, sql } = setup()
     core.wake(T0)
-    // Leave the maker 10 VOLT and no live VOLT sell, so next batch its ask (≥50) is rejected.
-    sql.exec(`UPDATE book SET status = 'cancelled', remaining = 0 WHERE userId = ? AND ticker = 'VOLT' AND side = 'sell'`, MM_BOT_ID)
+    // Leave the maker 10 VOLT and no live VOLT orders (bid released too, so no batch-1 fill can
+    // top it back up), so next batch its ask (≥50) is rejected.
+    const bid = rows<{ remaining: number; limitCents: number }>(
+      sql,
+      `SELECT remaining, limitCents FROM book WHERE userId = ? AND ticker = 'VOLT' AND side = 'buy'`,
+      MM_BOT_ID,
+    )[0]
+    const held = bid.remaining * bid.limitCents
+    sql.exec(`UPDATE accounts SET cashCents = cashCents + ?, reservedCents = reservedCents - ? WHERE userId = ?`, held, held, MM_BOT_ID)
+    sql.exec(`UPDATE book SET status = 'cancelled', remaining = 0 WHERE userId = ? AND ticker = 'VOLT'`, MM_BOT_ID)
     sql.exec(`UPDATE holdings SET qty = 10, reservedQty = 0 WHERE userId = ? AND ticker = 'VOLT'`, MM_BOT_ID)
     runBatches(core, 1)
     const voltOrders = rows<{ userId: string; side: string }>(
