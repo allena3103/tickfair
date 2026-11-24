@@ -223,7 +223,7 @@ export function OrderTicket({ ticker, lastCents, blockedReason, freeCashCents, f
           </span>
         </p>
       </form>
-      <Modal open={howOpen} onClose={() => setHowOpen(false)} size="xl" data-testid="how-it-works-modal">
+      <Modal open={howOpen} onClose={() => setHowOpen(false)} size="xl">
         <Modal.Header>
           <Modal.Title>How a batch auction works</Modal.Title>
         </Modal.Header>

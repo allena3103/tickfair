@@ -46,7 +46,7 @@ import { useScrollToHash } from '../components/shell/useScrollToHash'
 import { BatchAuctionSteps, ClearingDiagram } from '../components/BatchAuctionExplainer'
 
 export default function Landing() {
-  // Hash links (/#how-it-works) from other routes and on direct load: the
+  // Hash links (/#how-it-works) on direct load and from the header link: the
   // section renders after JS, so the browser's own anchor jump misses it.
   useScrollToHash()
   return (
