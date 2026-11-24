@@ -76,6 +76,7 @@ describe('NewsAPI inspiration', () => {
     expect(cleanTitle('Merger - what it means - Yahoo Finance - Canada', 'Yahoo Finance - Canada')).toBe('Merger - what it means')
     expect(cleanTitle('Gulf deal talks resume - Al-Monitor')).toBe('Gulf deal talks resume')
     expect(cleanTitle('Hidden\u202e text\u200b here\ufeff - X')).toBe('Hidden text here')
+    expect(cleanTitle('Deal \u2066hidden\u2069 talks\u00ad - X')).toBe('Deal hidden talks')
     expect(cleanTitle(`${'a'.repeat(119)} bcd`)).toBe('a'.repeat(119))
     expect(cleanTitle(42)).toBe('')
   })

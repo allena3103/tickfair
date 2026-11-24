@@ -69,7 +69,8 @@ export function buildPrompt(draw: NewsDraw, inspiration: string[] = []): LlmRequ
 }
 
 export async function generateNews(draw: NewsDraw, deps: GenerateDeps): Promise<GenerateResult> {
-  const inspiration = await deps.inspiration(draw.ticker)
+  // Inspiration is optional: a failure here must never block the news item.
+  const inspiration = await deps.inspiration(draw.ticker).catch(() => [])
   let reply: string
   try {
     reply = await deps.callLLM(buildPrompt(draw, inspiration))

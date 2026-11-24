@@ -25,8 +25,8 @@ export type Inspiration = (ticker: Ticker) => Promise<string[]>
 /**
  * Article titles end in " - Source"; drop it (exactly, when the source name is
  * known, else from the last " - "), then strip anything that could break out
- * of the prompt line or hide text: control, zero-width, and bidi characters,
- * and quotes.
+ * of the prompt line or hide text: control and format characters (zero-width,
+ * bidi, soft hyphen) and quotes.
  */
 export function cleanTitle(title: unknown, source?: unknown): string {
   if (typeof title !== 'string') return ''
@@ -34,7 +34,7 @@ export function cleanTitle(title: unknown, source?: unknown): string {
   const noSource = suffix && title.endsWith(suffix) ? title.slice(0, -suffix.length) : title.replace(/\s+-\s+(?:(?!\s+-\s+).)+$/, '')
   return Array.from(
     noSource
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff"`]/g, ' ')
+      .replace(/[\p{Cc}\p{Cf}"`]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim(),
   )
@@ -65,8 +65,9 @@ export type InspirationCache = Map<Ticker, { at: number; titles: string[] }>
 
 /**
  * Caches per ticker for `INSPIRATION_TTL_MS`, including empty results, so a
- * NewsAPI outage costs at most one failed call per ticker per hour in each
- * isolate. Pass a long-lived cache; each news event builds a new `invoke`.
+ * NewsAPI outage costs about one failed call per ticker per hour in each
+ * isolate (two events missing the cache at the same moment both fetch).
+ * Never throws. Pass a long-lived cache; each news event builds a new `invoke`.
  */
 export function makeInspiration(
   invoke: IntegrationInvoke,
